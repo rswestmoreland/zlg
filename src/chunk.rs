@@ -3,16 +3,9 @@ use std::io::BufRead;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ChunkPolicy {
-    FixedLines {
-        lines: u64,
-        byte_cap: Option<usize>,
-    },
-    ProgressiveLines {
-        byte_cap: Option<usize>,
-    },
-    ByteTarget {
-        bytes: usize,
-    },
+    FixedLines { lines: u64, byte_cap: Option<usize> },
+    ProgressiveLines { byte_cap: Option<usize> },
+    ByteTarget { bytes: usize },
 }
 
 impl ChunkPolicy {
@@ -23,7 +16,7 @@ impl ChunkPolicy {
                 byte_cap: None,
             } => 1,
             ChunkPolicy::ProgressiveLines { byte_cap: None } => 2,
-            ChunkPolicy::ByteTarget { bytes } if bytes == 1 * 1024 * 1024 => 3,
+            ChunkPolicy::ByteTarget { bytes } if bytes == 1024 * 1024 => 3,
             ChunkPolicy::ByteTarget { bytes } if bytes == 4 * 1024 * 1024 => 4,
             ChunkPolicy::ByteTarget { bytes } if bytes == 8 * 1024 * 1024 => 5,
             ChunkPolicy::ProgressiveLines {

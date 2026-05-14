@@ -48,12 +48,8 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
                 lines: 65_536,
                 byte_cap: None,
             },
-            ChunkPolicyArg::ProgressiveLines => ChunkPolicy::ProgressiveLines {
-                byte_cap: None,
-            },
-            ChunkPolicyArg::Byte1m => ChunkPolicy::ByteTarget {
-                bytes: 1 * 1024 * 1024,
-            },
+            ChunkPolicyArg::ProgressiveLines => ChunkPolicy::ProgressiveLines { byte_cap: None },
+            ChunkPolicyArg::Byte1m => ChunkPolicy::ByteTarget { bytes: 1024 * 1024 },
             ChunkPolicyArg::Byte4m => ChunkPolicy::ByteTarget {
                 bytes: 4 * 1024 * 1024,
             },
@@ -140,7 +136,7 @@ pub struct GrepArgs {
     #[arg(short = 'v', long)]
     pub invert_match: bool,
 
-    #[arg(short = 'h', long)]
+    #[arg(long)]
     pub no_filename: bool,
 
     #[arg(short = 'H', long)]
@@ -203,14 +199,7 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
 
     if args.input.is_empty() {
         let input = open_input(None)?;
-        let matches = grep_one(
-            input,
-            None,
-            false,
-            &matcher,
-            &options,
-            &mut stdout,
-        )?;
+        let matches = grep_one(input, None, false, &matcher, &options, &mut stdout)?;
         return grep_exit(matches);
     }
 
@@ -264,14 +253,8 @@ fn grep_one(
         }
 
         let decoded = raw_chunk.decode()?;
-        let chunk_matches = grep_decoded_chunk(
-            &decoded,
-            path,
-            show_filename,
-            matcher,
-            options,
-            writer,
-        )?;
+        let chunk_matches =
+            grep_decoded_chunk(&decoded, path, show_filename, matcher, options, writer)?;
 
         if chunk_matches > 0 {
             file_has_match = true;
@@ -324,12 +307,24 @@ fn grep_decoded_chunk(
             if !options.count && !options.files_with_matches {
                 if options.only_matching && !options.invert_match {
                     for item in matcher.find_matches(line)? {
-                        write_prefix(writer, path, show_filename, options.line_number, line_number)?;
+                        write_prefix(
+                            writer,
+                            path,
+                            show_filename,
+                            options.line_number,
+                            line_number,
+                        )?;
                         writer.write_all(&item)?;
                         writer.write_all(b"\n")?;
                     }
                 } else {
-                    write_prefix(writer, path, show_filename, options.line_number, line_number)?;
+                    write_prefix(
+                        writer,
+                        path,
+                        show_filename,
+                        options.line_number,
+                        line_number,
+                    )?;
                     writer.write_all(trim_trailing_newline(line))?;
                     writer.write_all(b"\n")?;
                 }

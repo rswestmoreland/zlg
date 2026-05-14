@@ -30,7 +30,7 @@ policies=(
 regex_patterns=(
     'error|failed|denied'
     'key="[^"]+"'
-    '(?:foo|bar)[0-9]'
+    '(foo|bar)[0-9]'
     'src_ip=[0-9.]+'
 )
 
@@ -63,13 +63,11 @@ for policy in "${policies[@]}"; do
         diff -u "$expected" "$actual"
     done
 
+    fancy_expected="$tmp_dir/fancy.${policy}.expected"
     fancy_actual="$tmp_dir/fancy.${policy}.actual"
-    "$zlg" grep -oP '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual"
-    if ! grep -q '^abc$' "$fancy_actual"; then
-        echo "policy matrix fancy extraction missing expected abc for $policy" >&2
-        cat "$fancy_actual" >&2
-        exit 1
-    fi
+    grep -oP '(?<=key=")[^"]+' "$input" > "$fancy_expected" || true
+    "$zlg" grep -oP '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual" || true
+    diff -u "$fancy_expected" "$fancy_actual"
 
     echo "phase0i policy matrix ok: $policy"
 done

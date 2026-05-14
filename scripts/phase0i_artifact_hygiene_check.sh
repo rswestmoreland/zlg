@@ -16,9 +16,9 @@ check_path() {
 
 # Build outputs may exist during local validation, but must not be committed.
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    if git status --porcelain --ignored | grep -E '(^[?MADRCU! ]{2} target/|target/|\.zlg$|\.gz$|\.zst$)' >/dev/null; then
+    if git status --porcelain | grep -E 'target/|\.zlg$|\.gz$|\.zst$' >/dev/null; then
         echo "artifact hygiene failure: git status shows build/compressed artifacts" >&2
-        git status --porcelain --ignored | grep -E 'target/|\.zlg$|\.gz$|\.zst$' >&2 || true
+        git status --porcelain | grep -E 'target/|\.zlg$|\.zst$|\.gz$' >&2 || true
         bad=1
     fi
 fi

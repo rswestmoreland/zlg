@@ -154,15 +154,9 @@ pub struct Matcher {
 
 #[derive(Debug)]
 enum Engine {
-    Fixed {
-        pattern: Vec<u8>,
-    },
-    Regex {
-        regex: regex::bytes::Regex,
-    },
-    Fancy {
-        regex: fancy_regex::Regex,
-    },
+    Fixed { pattern: Vec<u8> },
+    Regex { regex: regex::bytes::Regex },
+    Fancy { regex: fancy_regex::Regex },
 }
 
 impl Matcher {
@@ -206,7 +200,9 @@ impl Matcher {
 
     pub fn line_matches(&self, line: &[u8]) -> Result<bool> {
         match &self.engine {
-            Engine::Fixed { pattern } => Ok(fixed_contains(line, pattern, self.options.ignore_case)),
+            Engine::Fixed { pattern } => {
+                Ok(fixed_contains(line, pattern, self.options.ignore_case))
+            }
             Engine::Regex { regex } => Ok(regex.is_match(line)),
             Engine::Fancy { regex } => {
                 let line = String::from_utf8_lossy(line);
@@ -217,7 +213,9 @@ impl Matcher {
 
     pub fn find_matches(&self, line: &[u8]) -> Result<Vec<Vec<u8>>> {
         match &self.engine {
-            Engine::Fixed { pattern } => Ok(fixed_find_all(line, pattern, self.options.ignore_case)),
+            Engine::Fixed { pattern } => {
+                Ok(fixed_find_all(line, pattern, self.options.ignore_case))
+            }
             Engine::Regex { regex } => Ok(regex
                 .find_iter(line)
                 .map(|m| m.as_bytes().to_vec())
@@ -312,10 +310,23 @@ fn selector_from_positive_lookbehind(pattern: &str) -> Option<Vec<u8>> {
     let end = rest.find(')')?;
     let candidate = &rest[..end];
 
-    if candidate
-        .bytes()
-        .all(|b| !matches!(b, b'[' | b']' | b'(' | b')' | b'{' | b'}' | b'*' | b'+' | b'?' | b'|' | b'^' | b'$' | b'.'))
-    {
+    if candidate.bytes().all(|b| {
+        !matches!(
+            b,
+            b'[' | b']'
+                | b'('
+                | b')'
+                | b'{'
+                | b'}'
+                | b'*'
+                | b'+'
+                | b'?'
+                | b'|'
+                | b'^'
+                | b'$'
+                | b'.'
+        )
+    }) {
         non_empty(candidate.as_bytes())
     } else {
         None
@@ -403,13 +414,13 @@ fn fixed_find_all(line: &[u8], pattern: &[u8], ignore_case: bool) -> Vec<Vec<u8>
         let finder = Finder::new(&lower_pattern);
         finder
             .find_iter(&lower_line)
-            .map(|range| line[range.start..range.end].to_vec())
+            .map(|start| line[start..start + pattern.len()].to_vec())
             .collect()
     } else {
         let finder = Finder::new(pattern);
         finder
             .find_iter(line)
-            .map(|range| line[range.start..range.end].to_vec())
+            .map(|start| line[start..start + pattern.len()].to_vec())
             .collect()
     }
 }
@@ -456,7 +467,10 @@ mod tests {
     #[test]
     fn fixed_find_all_preserves_original_case() {
         let matches = fixed_find_all(b"Error ERROR error", b"error", true);
-        assert_eq!(matches, vec![b"Error".to_vec(), b"ERROR".to_vec(), b"error".to_vec()]);
+        assert_eq!(
+            matches,
+            vec![b"Error".to_vec(), b"ERROR".to_vec(), b"error".to_vec()]
+        );
     }
 
     #[test]

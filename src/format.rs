@@ -11,7 +11,7 @@ const DIR_MAGIC: &[u8; 4] = b"ZDR1";
 const FOOTER_MAGIC: &[u8; 4] = b"ZFT1";
 const GLOBAL_HEADER_LEN: u16 = 32;
 const CHUNK_HEADER_LEN: u16 = 64;
-const DIRECTORY_ENTRY_LEN: u32 = 68;
+const DIRECTORY_ENTRY_LEN: u32 = 64;
 const FORMAT_VERSION: u16 = 1;
 
 #[derive(Clone, Debug)]
@@ -322,7 +322,9 @@ impl<R: Read> ZlgReader<R> {
     fn skip_directory(&mut self) -> Result<()> {
         let entry_len = read_u32(&mut self.reader)?;
         if entry_len != DIRECTORY_ENTRY_LEN {
-            return Err(anyhow!("unsupported zlg directory entry length {entry_len}"));
+            return Err(anyhow!(
+                "unsupported zlg directory entry length {entry_len}"
+            ));
         }
 
         let entry_count = read_u64(&mut self.reader)?;

@@ -4,6 +4,7 @@
 *.tmp
 .DS_Store
 *.gz
-validation_results/*.csv
 !validation_results/*.txt
 !validation_results/README.md
+
+!validation_results/*.csv

@@ -81,3 +81,26 @@ cargo run -- grep -o 'key="[^"]+"' /tmp/zlg-smoke.log.zlg
 cargo run -- grep -n 'failed password' /tmp/zlg-smoke.log.zlg
 cargo run -- grep -P '(?<=key=")[^"]+' /tmp/zlg-smoke.log.zlg
 ```
+
+## Phase 0h proof-prep helpers
+
+This checkpoint includes small proof-prep helpers:
+
+```bash
+scripts/phase0h_smoke.sh
+scripts/phase0h_correctness_check.sh
+python3 tools/phase0h_bench.py --quick
+```
+
+These scripts use temporary directories and should not commit generated `.zlg`, `.gz`, `target/`, or temporary files.
+
+
+## Phase 0i pre-bench readiness
+
+The checkpoint includes a one-command pre-bench readiness pass:
+
+```bash
+scripts/phase0i_prebench_once.sh
+```
+
+This validates the Rust build, smoke tests, correctness checks, all chunk policies, a repeatable pre-bench harness, and artifact hygiene before full benchmark work.

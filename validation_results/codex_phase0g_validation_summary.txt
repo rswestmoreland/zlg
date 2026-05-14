@@ -1,0 +1,44 @@
+zlg Phase 0g Codex validation summary
+
+Required validation flow passed:
+
+- cargo fmt --check
+- cargo check
+- cargo test
+- cargo clippy --all-targets --all-features -- -D warnings
+- cargo build --release
+
+Smoke tests passed:
+
+- compress
+- cat
+- grep 'error|failed'
+- grep -o 'key="[^"]+"'
+- grep -n 'failed password'
+- grep -P '(?<=key=")[^"]+'
+
+Bounded fixes applied in Codex:
+
+- fixed_find_all offset slicing corrected
+- DIRECTORY_ENTRY_LEN aligned with encoded directory entry size 64
+- clippy identity-op cleanup
+- removed conflicting -h short option from --no-filename
+- Cargo.lock generated and committed
+
+Functional note:
+
+`grep -P '(?<=key=")[^"]+'` prints the full matching line by default, which is normal grep-like behavior without -o.
+The extraction smoke should use:
+
+cargo run -- grep -oP '(?<=key=")[^"]+' /tmp/zlg-smoke.log.zlg
+
+Expected output:
+
+abc
+
+Artifact hygiene reported by Codex:
+
+- no build artifacts committed
+- no target/ committed
+- no temp files committed
+- no .zlg outputs committed

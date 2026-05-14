@@ -1,0 +1,9 @@
+# name|mode|pattern|notes
+literal_failed_password|regex|failed password|simple literal through regex mode
+alternation_error_failed_denied|regex|error|failed|denied|simple alternation
+quoted_key|regex|key="[^"]+"|quoted key extraction
+branch_suffix|regex|(?:foo|bar)[0-9]|branch plus digit suffix
+src_ip|regex|src_ip=[0-9.]+|simple IP-like value
+lookbehind_key|fancy|(?<=key=")[^"]+|fancy-regex lookbehind extraction with -oP
+fixed_alpha|fixed|alpha|fixed string mode
+no_match_literal|fixed|no_such_token_zzzz|expected no match

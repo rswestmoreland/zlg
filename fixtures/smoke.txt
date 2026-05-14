@@ -1,0 +1,7 @@
+alpha
+error key="abc"
+failed password
+INFO src_ip=192.0.2.5 action=allow
+warning foo7
+warning bar9
+repeat repeat

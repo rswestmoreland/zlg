@@ -479,7 +479,9 @@ fn literal_runs(pattern: &str) -> Vec<Vec<u8>> {
             b']' => {
                 in_class = false;
             }
-            b'(' | b')' | b'{' | b'}' | b'*' | b'+' | b'?' | b'^' | b'$' | b'.' | b'|' if !in_class => {
+            b'(' | b')' | b'{' | b'}' | b'*' | b'+' | b'?' | b'^' | b'$' | b'.' | b'|'
+                if !in_class =>
+            {
                 flush_literal(&mut literals, &mut current);
             }
             _ if !in_class => {
@@ -563,7 +565,7 @@ fn is_plain_literal(value: &str) -> bool {
             b'[' | b']'
                 | b'('
                 | b')'
-                | b'{' 
+                | b'{'
                 | b'}'
                 | b'*'
                 | b'+'

@@ -103,3 +103,20 @@ Codex prebench prompt
 ```
 
 Phase 0i does not add runtime features and does not freeze the format.
+
+## Phase 0j - Instrumentation and full-bench prep
+
+Status: prepared for Codex validation.
+
+Added:
+
+```text
+zlg grep --stats-json instrumentation
+first-output latency capture in benchmark harness
+zlg chunk count and payload/summary/overhead accounting
+CSV preservation and column checks
+instrumented one-command prebench flow
+Codex Phase 0j prompt
+```
+
+Phase 0j does not add async/concurrency and does not freeze the format.

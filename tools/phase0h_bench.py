@@ -18,11 +18,13 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import os
 from pathlib import Path
 import platform
 import shutil
 import statistics
+import struct
 import subprocess
 import sys
 import tempfile
@@ -81,9 +83,20 @@ FIELDNAMES = [
     "engine",
     "command",
     "wall_seconds",
+    "first_output_seconds",
     "exit_code",
     "input_bytes",
     "output_bytes",
+    "chunk_count",
+    "zlg_compressed_payload_bytes",
+    "zlg_summary_bytes",
+    "zlg_overhead_bytes",
+    "chunks_total",
+    "chunks_skipped",
+    "candidate_chunks",
+    "chunks_decoded",
+    "decoded_bytes",
+    "matching_lines",
     "notes",
 ]
 
@@ -104,6 +117,98 @@ def run(cmd: list[str], cwd: Path, stdout_path: Path | None = None) -> tuple[flo
         sys.stderr.write(stderr)
         raise SystemExit(result.returncode)
     return elapsed, result.returncode, out_len, stderr
+
+
+
+def run_with_first_output(cmd: list[str], cwd: Path) -> tuple[float, int, int, str, str]:
+    """Run a command and measure time to first stdout byte.
+
+    The first-output value is empty when the command writes no stdout. This is
+    useful for grep no-match cases where exit 1 is still a valid result.
+    """
+    start = time.perf_counter()
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+
+    first_output = ""
+    first = proc.stdout.read(1)
+    if first:
+        first_output = f"{time.perf_counter() - start:.6f}"
+        rest = proc.stdout.read()
+        out_len = 1 + len(rest)
+    else:
+        out_len = 0
+
+    stderr_bytes = proc.stderr.read()
+    code = proc.wait()
+    elapsed = time.perf_counter() - start
+    stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+    if code not in (0, 1):
+        sys.stderr.write(f"command failed: {' '.join(cmd)}\n")
+        sys.stderr.write(stderr)
+        raise SystemExit(code)
+
+    return elapsed, code, out_len, stderr, first_output
+
+
+def read_json_file(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def inspect_zlg(path: Path) -> dict[str, int]:
+    """Read provisional ZLG1P0 chunk metadata without decoding payloads."""
+    size = path.stat().st_size
+    chunk_count = 0
+    compressed_payload = 0
+    summary_bytes = 0
+    uncompressed_bytes = 0
+    line_count = 0
+
+    with path.open("rb") as handle:
+        magic = handle.read(8)
+        if magic != b"ZLG1P0\0\0":
+            return {}
+        handle.seek(32)
+
+        while True:
+            record_magic = handle.read(4)
+            if not record_magic:
+                break
+            if record_magic == b"ZDR1":
+                break
+            if record_magic != b"ZCH1":
+                raise SystemExit(f"unexpected zlg record magic in {path}: {record_magic!r}")
+
+            header = handle.read(60)
+            if len(header) != 60:
+                raise SystemExit(f"short zlg chunk header in {path}")
+            header_len, _flags = struct.unpack_from("<HH", header, 0)
+            if header_len != 64:
+                raise SystemExit(f"unexpected zlg chunk header length {header_len} in {path}")
+            this_line_count = struct.unpack_from("<Q", header, 20)[0]
+            this_uncompressed = struct.unpack_from("<Q", header, 28)[0]
+            this_compressed = struct.unpack_from("<Q", header, 36)[0]
+            this_summary = struct.unpack_from("<I", header, 44)[0]
+
+            chunk_count += 1
+            compressed_payload += this_compressed
+            summary_bytes += this_summary
+            uncompressed_bytes += this_uncompressed
+            line_count += this_line_count
+            handle.seek(this_summary + this_compressed, os.SEEK_CUR)
+
+    return {
+        "chunk_count": chunk_count,
+        "zlg_compressed_payload_bytes": compressed_payload,
+        "zlg_summary_bytes": summary_bytes,
+        "zlg_overhead_bytes": size - compressed_payload,
+        "zlg_uncompressed_bytes": uncompressed_bytes,
+        "zlg_line_count": line_count,
+    }
 
 
 def tool_version(tool: str) -> str:
@@ -196,17 +301,48 @@ def summarize(csv_path: Path, summary_path: Path, mode: str, corpus: Path, input
         "",
         "## Median timings",
         "",
-        "| kind | name | policy | pattern | repeats | median_s | min_s | max_s | output_bytes |",
-        "|---|---|---|---|---:|---:|---:|---:|---:|",
+        "| kind | name | policy | pattern | repeats | median_s | min_s | max_s | first_output_s | output_bytes |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
     ]
 
     for key in sorted(grouped):
         values = grouped[key]
         kind, name, policy, pattern_name = key
+        first_values = [
+            float(row["first_output_seconds"])
+            for row in rows
+            if (row["kind"], row["name"], row["policy"], row["pattern_name"]) == key
+            and row.get("first_output_seconds")
+        ]
+        first_output = f"{statistics.median(first_values):.6f}" if first_values else ""
         lines_out.append(
             f"| {kind} | {name} | {policy} | {pattern_name} | {len(values)} | "
-            f"{statistics.median(values):.6f} | {min(values):.6f} | {max(values):.6f} | {sizes.get(key, '')} |"
+            f"{statistics.median(values):.6f} | {min(values):.6f} | {max(values):.6f} | "
+            f"{first_output} | {sizes.get(key, '')} |"
         )
+
+    zlg_grep_rows = [row for row in rows if row["kind"] == "grep" and row["name"] == "zlg_grep"]
+    if zlg_grep_rows:
+        lines_out.extend([
+            "",
+            "## zlg grep counter medians",
+            "",
+            "| policy | pattern | repeats | chunks_total | chunks_skipped | chunks_decoded | decoded_bytes | matching_lines |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        counter_groups: dict[tuple[str, str], list[dict[str, str]]] = {}
+        for row in zlg_grep_rows:
+            counter_groups.setdefault((row["policy"], row["pattern_name"]), []).append(row)
+        for key in sorted(counter_groups):
+            group = counter_groups[key]
+            def med(field: str) -> str:
+                values = [float(row[field]) for row in group if row.get(field)]
+                return f"{statistics.median(values):.0f}" if values else ""
+            policy, pattern_name = key
+            lines_out.append(
+                f"| {policy} | {pattern_name} | {len(group)} | {med('chunks_total')} | "
+                f"{med('chunks_skipped')} | {med('chunks_decoded')} | {med('decoded_bytes')} | {med('matching_lines')} |"
+            )
 
     summary_path.write_text("\n".join(lines_out) + "\n", encoding="utf-8")
 
@@ -384,6 +520,7 @@ def main() -> int:
                         repo,
                     )
                     zlg_outputs.append((policy, out))
+                    zlg_meta = inspect_zlg(out)
                     write_row(
                         writer,
                         mode=mode,
@@ -396,6 +533,10 @@ def main() -> int:
                         exit_code=code,
                         input_bytes=input_bytes,
                         output_bytes=out.stat().st_size,
+                        chunk_count=zlg_meta.get("chunk_count", ""),
+                        zlg_compressed_payload_bytes=zlg_meta.get("zlg_compressed_payload_bytes", ""),
+                        zlg_summary_bytes=zlg_meta.get("zlg_summary_bytes", ""),
+                        zlg_overhead_bytes=zlg_meta.get("zlg_overhead_bytes", ""),
                     )
 
                 for policy, zlg_file in zlg_outputs:
@@ -418,13 +559,15 @@ def main() -> int:
                     )
 
                     for pattern_name, engine, pattern in PATTERNS:
-                        cmd = [str(zlg), "grep"]
+                        stats_path = tmp_path / f"grep.{policy}.{repeat}.{pattern_name}.json"
+                        cmd = [str(zlg), "grep", "--stats-json", str(stats_path)]
                         if engine == "fixed":
                             cmd.append("-F")
                         elif engine == "fancy":
                             cmd.append("-P")
                         cmd.extend([pattern, str(zlg_file)])
-                        elapsed, code, out_len, _ = run(cmd, repo)
+                        elapsed, code, out_len, _, first_output = run_with_first_output(cmd, repo)
+                        stats = read_json_file(stats_path)
                         write_row(
                             writer,
                             mode=mode,
@@ -434,11 +577,18 @@ def main() -> int:
                             policy=policy,
                             pattern_name=pattern_name,
                             engine=engine,
-                            command=" ".join(cmd[:-1]) + " <zlg>",
+                            command="zlg grep <opts> <pattern> <zlg>",
                             wall_seconds=f"{elapsed:.6f}",
+                            first_output_seconds=first_output,
                             exit_code=code,
                             input_bytes=zlg_file.stat().st_size,
                             output_bytes=out_len,
+                            chunks_total=stats.get("chunks_total", ""),
+                            chunks_skipped=stats.get("chunks_skipped", ""),
+                            candidate_chunks=stats.get("candidate_chunks", ""),
+                            chunks_decoded=stats.get("chunks_decoded", ""),
+                            decoded_bytes=stats.get("decoded_bytes", ""),
+                            matching_lines=stats.get("matching_lines", ""),
                         )
 
                 if grep:
@@ -451,7 +601,7 @@ def main() -> int:
                         else:
                             cmd.append("-E")
                         cmd.extend([pattern, str(corpus)])
-                        elapsed, code, out_len, _ = run(cmd, repo)
+                        elapsed, code, out_len, _, first_output = run_with_first_output(cmd, repo)
                         write_row(
                             writer,
                             mode=mode,
@@ -462,6 +612,7 @@ def main() -> int:
                             engine=engine,
                             command=" ".join(cmd[:-1]) + " <plain>",
                             wall_seconds=f"{elapsed:.6f}",
+                            first_output_seconds=first_output,
                             exit_code=code,
                             input_bytes=input_bytes,
                             output_bytes=out_len,
@@ -475,7 +626,7 @@ def main() -> int:
                         if engine == "fixed":
                             cmd.append("-F")
                         cmd.extend([pattern, str(corpus)])
-                        elapsed, code, out_len, _ = run(cmd, repo)
+                        elapsed, code, out_len, _, first_output = run_with_first_output(cmd, repo)
                         write_row(
                             writer,
                             mode=mode,
@@ -486,6 +637,7 @@ def main() -> int:
                             engine=engine,
                             command=" ".join(cmd[:-1]) + " <plain>",
                             wall_seconds=f"{elapsed:.6f}",
+                            first_output_seconds=first_output,
                             exit_code=code,
                             input_bytes=input_bytes,
                             output_bytes=out_len,
@@ -503,7 +655,7 @@ def main() -> int:
                         else:
                             cmd.append("-E")
                         cmd.extend([pattern, str(gz6)])
-                        elapsed, code, out_len, _ = run(cmd, repo)
+                        elapsed, code, out_len, _, first_output = run_with_first_output(cmd, repo)
                         write_row(
                             writer,
                             mode=mode,
@@ -514,6 +666,7 @@ def main() -> int:
                             engine=engine,
                             command=" ".join(cmd[:-1]) + " <gz>",
                             wall_seconds=f"{elapsed:.6f}",
+                            first_output_seconds=first_output,
                             exit_code=code,
                             input_bytes=gz6.stat().st_size,
                             output_bytes=out_len,
@@ -530,7 +683,7 @@ def main() -> int:
                             pipeline = f"{zstdcat} {zst} | {grep} -F {shell_quote(pattern)}"
                         else:
                             pipeline = f"{zstdcat} {zst} | {grep} -E {shell_quote(pattern)}"
-                        elapsed, code, out_len, _ = run(["bash", "-lc", pipeline], repo)
+                        elapsed, code, out_len, _, first_output = run_with_first_output(["bash", "-lc", pipeline], repo)
                         write_row(
                             writer,
                             mode=mode,
@@ -541,6 +694,7 @@ def main() -> int:
                             engine=engine,
                             command="zstdcat <zst> | grep",
                             wall_seconds=f"{elapsed:.6f}",
+                            first_output_seconds=first_output,
                             exit_code=code,
                             input_bytes=zst.stat().st_size,
                             output_bytes=out_len,

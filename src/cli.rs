@@ -141,6 +141,9 @@ pub struct GrepArgs {
 
     #[arg(short = 'H', long)]
     pub with_filename: bool,
+
+    #[arg(long)]
+    pub stats_json: Option<PathBuf>,
 }
 
 pub fn run_compress(args: CompressArgs) -> Result<()> {
@@ -178,6 +181,33 @@ pub fn run_cat(args: CatArgs) -> Result<()> {
     Ok(())
 }
 
+
+#[derive(Debug, Default)]
+struct GrepStats {
+    files: u64,
+    chunks_total: u64,
+    chunks_skipped: u64,
+    candidate_chunks: u64,
+    chunks_decoded: u64,
+    decoded_bytes: u64,
+    matching_lines: u64,
+}
+
+impl GrepStats {
+    fn to_json(&self) -> String {
+        format!(
+            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {}\n}}\n",
+            self.files,
+            self.chunks_total,
+            self.chunks_skipped,
+            self.candidate_chunks,
+            self.chunks_decoded,
+            self.decoded_bytes,
+            self.matching_lines
+        )
+    }
+}
+
 pub fn run_grep(args: GrepArgs) -> Result<()> {
     if args.fixed_strings && args.perl_regexp {
         return Err(anyhow!("cannot combine -F and -P"));
@@ -196,10 +226,12 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
 
     let matcher = Matcher::new(&args.pattern, options.clone())?;
     let mut stdout = BufWriter::new(io::stdout().lock());
+    let mut stats = GrepStats::default();
 
     if args.input.is_empty() {
         let input = open_input(None)?;
-        let matches = grep_one(input, None, false, &matcher, &options, &mut stdout)?;
+        let matches = grep_one(input, None, false, &matcher, &options, &mut stdout, &mut stats)?;
+        write_grep_stats(args.stats_json.as_ref(), &stats)?;
         return grep_exit(matches);
     }
 
@@ -221,11 +253,21 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
             &matcher,
             &options,
             &mut stdout,
+            &mut stats,
         )?;
     }
 
     stdout.flush()?;
+    write_grep_stats(args.stats_json.as_ref(), &stats)?;
     grep_exit(total_matches)
+}
+
+fn write_grep_stats(path: Option<&PathBuf>, stats: &GrepStats) -> Result<()> {
+    if let Some(path) = path {
+        std::fs::write(path, stats.to_json())
+            .with_context(|| format!("failed to write grep stats {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn grep_exit(matches: usize) -> Result<()> {
@@ -242,23 +284,31 @@ fn grep_one(
     matcher: &Matcher,
     options: &GrepOptions,
     writer: &mut dyn Write,
+    stats: &mut GrepStats,
 ) -> Result<usize> {
     let mut reader = ZlgReader::new(BufReader::new(input))?;
+    stats.files += 1;
     let mut match_count = 0usize;
     let mut file_has_match = false;
 
     while let Some(raw_chunk) = reader.next_raw_chunk()? {
+        stats.chunks_total += 1;
         if !matcher.chunk_may_match(&raw_chunk.summary) {
+            stats.chunks_skipped += 1;
             continue;
         }
 
+        stats.candidate_chunks += 1;
         let decoded = raw_chunk.decode()?;
+        stats.chunks_decoded += 1;
+        stats.decoded_bytes += decoded.data.len() as u64;
         let chunk_matches =
             grep_decoded_chunk(&decoded, path, show_filename, matcher, options, writer)?;
 
         if chunk_matches > 0 {
             file_has_match = true;
             match_count += chunk_matches;
+            stats.matching_lines += chunk_matches as u64;
 
             if options.files_with_matches {
                 break;

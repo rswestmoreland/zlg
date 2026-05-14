@@ -40,8 +40,6 @@ POLICIES_QUICK = [
 POLICIES_PREBENCH = [
     "fixed-lines64k",
     "progressive-lines",
-    "byte4m",
-    "byte8m",
     "hybrid-progressive-cap8m",
     "hybrid-progressive-cap16m",
     "hybrid-fixed64k-cap8m",

@@ -1,0 +1,5 @@
+/target
+*.zlg
+*.log
+*.tmp
+.DS_Store

@@ -1,0 +1,25 @@
+# zlg Phase 0h/0i environment report
+
+Mode: prebench
+Lines: 125000
+Repeats: 3
+Platform: Linux-6.12.47-x86_64-with-glibc2.39
+Python: 3.12.13
+Machine: x86_64
+Processor: x86_64
+Repo: /workspace/zlg
+
+## Rust
+
+rustc: rustc 1.89.0 (29483883e 2025-08-04)
+cargo: cargo 1.89.0 (c24e10642 2025-06-23)
+
+## External tools
+
+gzip: /usr/bin/gzip :: gzip 1.12
+zgrep: /usr/bin/zgrep :: zgrep (gzip) 1.12
+grep: /usr/bin/grep :: grep (GNU grep) 3.11
+rg: /usr/bin/rg :: ripgrep 14.1.0
+zstd: not_found
+zstdcat: not_found
+time: not_found

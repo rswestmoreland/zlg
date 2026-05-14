@@ -176,7 +176,70 @@ impl SearchSummary {
 pub struct Matcher {
     engine: Engine,
     options: GrepOptions,
-    selector_literal: Option<Vec<u8>>,
+    selector_plan: SelectorPlan,
+}
+
+#[derive(Clone, Debug)]
+enum SelectorPlan {
+    None,
+    All(Vec<Vec<u8>>),
+    Any(Vec<Vec<u8>>),
+}
+
+impl SelectorPlan {
+    fn may_match(&self, summary: &SearchSummary, ignore_case: bool) -> bool {
+        match self {
+            SelectorPlan::None => true,
+            SelectorPlan::All(literals) => literals
+                .iter()
+                .all(|literal| summary.may_contain_literal(literal, ignore_case)),
+            SelectorPlan::Any(literals) => literals
+                .iter()
+                .any(|literal| summary.may_contain_literal(literal, ignore_case)),
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            SelectorPlan::None => "none",
+            SelectorPlan::All(_) => "literal_all",
+            SelectorPlan::Any(_) => "literal_any",
+        }
+    }
+
+    fn byte_len(&self) -> usize {
+        match self {
+            SelectorPlan::None => 0,
+            SelectorPlan::All(literals) | SelectorPlan::Any(literals) => {
+                literals.iter().map(Vec::len).sum()
+            }
+        }
+    }
+
+    fn count(&self) -> usize {
+        match self {
+            SelectorPlan::None => 0,
+            SelectorPlan::All(literals) | SelectorPlan::Any(literals) => literals.len(),
+        }
+    }
+
+    fn from_all(literals: Vec<Vec<u8>>) -> Self {
+        let literals = dedup_literals(literals);
+        if literals.is_empty() {
+            SelectorPlan::None
+        } else {
+            SelectorPlan::All(literals)
+        }
+    }
+
+    fn from_any(literals: Vec<Vec<u8>>) -> Self {
+        let literals = dedup_literals(literals);
+        if literals.is_empty() {
+            SelectorPlan::None
+        } else {
+            SelectorPlan::Any(literals)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -188,7 +251,7 @@ enum Engine {
 
 impl Matcher {
     pub fn new(pattern: &str, options: GrepOptions) -> Result<Self> {
-        let selector_literal = selector_literal(pattern, &options);
+        let selector_plan = selector_plan(pattern, &options);
 
         let engine = if options.fixed_strings {
             Engine::Fixed {
@@ -214,27 +277,25 @@ impl Matcher {
         Ok(Self {
             engine,
             options,
-            selector_literal,
+            selector_plan,
         })
     }
 
     pub fn chunk_may_match(&self, summary: &SearchSummary) -> bool {
-        match &self.selector_literal {
-            Some(literal) => summary.may_contain_literal(literal, self.options.ignore_case),
-            None => true,
-        }
+        self.selector_plan
+            .may_match(summary, self.options.ignore_case)
     }
 
     pub fn selector_kind(&self) -> &'static str {
-        if self.selector_literal.is_some() {
-            "literal"
-        } else {
-            "none"
-        }
+        self.selector_plan.kind()
     }
 
     pub fn selector_len(&self) -> usize {
-        self.selector_literal.as_ref().map_or(0, Vec::len)
+        self.selector_plan.byte_len()
+    }
+
+    pub fn selector_count(&self) -> usize {
+        self.selector_plan.count()
     }
 
     pub fn line_matches(&self, line: &[u8]) -> Result<bool> {
@@ -274,110 +335,52 @@ impl Matcher {
     }
 }
 
-fn selector_literal(pattern: &str, options: &GrepOptions) -> Option<Vec<u8>> {
+fn selector_plan(pattern: &str, options: &GrepOptions) -> SelectorPlan {
     if options.fixed_strings {
-        return non_empty(pattern.as_bytes());
+        return SelectorPlan::from_all(non_empty(pattern.as_bytes()).into_iter().collect());
     }
 
     if options.perl_regexp {
-        return selector_from_positive_lookbehind(pattern)
-            .or_else(|| conservative_regex_literal(pattern));
+        if let Some(literal) = selector_from_positive_lookbehind(pattern) {
+            return SelectorPlan::from_all(vec![literal]);
+        }
     }
 
-    conservative_regex_literal(pattern)
+    regex_selector_plan(pattern)
 }
 
-fn conservative_regex_literal(pattern: &str) -> Option<Vec<u8>> {
-    if has_unescaped_top_level_or(pattern) {
-        return None;
-    }
-
-    let mut best = Vec::new();
-    let mut current = Vec::new();
-    let mut in_class = false;
-    let mut escaped = false;
-
-    for byte in pattern.bytes() {
-        if escaped {
-            if is_literal_escape(byte) {
-                current.push(unescape_literal(byte));
+fn regex_selector_plan(pattern: &str) -> SelectorPlan {
+    if let Some(branches) = split_top_level_alternation(pattern) {
+        let mut branch_literals = Vec::new();
+        for branch in branches {
+            if let Some(best) = best_literal_run(branch) {
+                branch_literals.push(best);
             } else {
-                flush_best(&mut best, &mut current);
+                return SelectorPlan::None;
             }
-            escaped = false;
-            continue;
         }
-
-        match byte {
-            b'\\' => {
-                escaped = true;
-            }
-            b'[' => {
-                flush_best(&mut best, &mut current);
-                in_class = true;
-            }
-            b']' => {
-                in_class = false;
-            }
-            b'(' | b')' | b'{' | b'}' | b'*' | b'+' | b'?' | b'^' | b'$' | b'.' if !in_class => {
-                flush_best(&mut best, &mut current);
-            }
-            b'|' if !in_class => {
-                return None;
-            }
-            _ if !in_class => {
-                current.push(byte);
-            }
-            _ => {}
-        }
+        return SelectorPlan::from_any(branch_literals);
     }
 
-    flush_best(&mut best, &mut current);
-
-    if best.len() >= 2 {
-        Some(best)
-    } else {
-        None
+    if let Some(branch_literals) = noncapturing_alternation_literals(pattern) {
+        return SelectorPlan::from_any(branch_literals);
     }
+
+    if has_unescaped_or_any_depth(pattern) || has_unhandled_group(pattern) {
+        return SelectorPlan::None;
+    }
+
+    SelectorPlan::from_all(literal_runs(pattern))
 }
 
-fn selector_from_positive_lookbehind(pattern: &str) -> Option<Vec<u8>> {
-    let prefix = "(?<=";
-    let start = pattern.find(prefix)?;
-    let after = start + prefix.len();
-    let rest = &pattern[after..];
-    let end = rest.find(')')?;
-    let candidate = &rest[..end];
-
-    if candidate.bytes().all(|b| {
-        !matches!(
-            b,
-            b'[' | b']'
-                | b'('
-                | b')'
-                | b'{'
-                | b'}'
-                | b'*'
-                | b'+'
-                | b'?'
-                | b'|'
-                | b'^'
-                | b'$'
-                | b'.'
-        )
-    }) {
-        non_empty(candidate.as_bytes())
-    } else {
-        None
-    }
-}
-
-fn has_unescaped_top_level_or(pattern: &str) -> bool {
+fn split_top_level_alternation(pattern: &str) -> Option<Vec<&str>> {
     let mut escaped = false;
     let mut in_class = false;
     let mut depth = 0i32;
+    let mut last = 0usize;
+    let mut parts = Vec::new();
 
-    for byte in pattern.bytes() {
+    for (idx, byte) in pattern.bytes().enumerate() {
         if escaped {
             escaped = false;
             continue;
@@ -389,12 +392,189 @@ fn has_unescaped_top_level_or(pattern: &str) -> bool {
             b']' if in_class => in_class = false,
             b'(' if !in_class => depth += 1,
             b')' if !in_class && depth > 0 => depth -= 1,
-            b'|' if !in_class && depth == 0 => return true,
+            b'|' if !in_class && depth == 0 => {
+                parts.push(&pattern[last..idx]);
+                last = idx + 1;
+            }
+            _ => {}
+        }
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        parts.push(&pattern[last..]);
+        Some(parts)
+    }
+}
+
+fn noncapturing_alternation_literals(pattern: &str) -> Option<Vec<Vec<u8>>> {
+    let prefix = "(?:";
+    if !pattern.starts_with(prefix) {
+        return None;
+    }
+
+    let mut escaped = false;
+    let mut depth = 0i32;
+    let mut end = None;
+
+    for (idx, byte) in pattern.bytes().enumerate().skip(prefix.len()) {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match byte {
+            b'\\' => escaped = true,
+            b'(' => depth += 1,
+            b')' if depth == 0 => {
+                end = Some(idx);
+                break;
+            }
+            b')' => depth -= 1,
+            _ => {}
+        }
+    }
+
+    let end = end?;
+    let body = &pattern[prefix.len()..end];
+    if body.is_empty() || body.contains('(') || body.contains('[') {
+        return None;
+    }
+
+    let mut out = Vec::new();
+    for branch in body.split('|') {
+        if branch.len() < 2 || !is_plain_literal(branch) {
+            return None;
+        }
+        out.push(branch.as_bytes().to_vec());
+    }
+
+    Some(out)
+}
+
+fn literal_runs(pattern: &str) -> Vec<Vec<u8>> {
+    let mut literals = Vec::new();
+    let mut current = Vec::new();
+    let mut in_class = false;
+    let mut escaped = false;
+
+    for byte in pattern.bytes() {
+        if escaped {
+            if is_literal_escape(byte) {
+                current.push(unescape_literal(byte));
+            } else {
+                flush_literal(&mut literals, &mut current);
+            }
+            escaped = false;
+            continue;
+        }
+
+        match byte {
+            b'\\' => escaped = true,
+            b'[' => {
+                flush_literal(&mut literals, &mut current);
+                in_class = true;
+            }
+            b']' => {
+                in_class = false;
+            }
+            b'(' | b')' | b'{' | b'}' | b'*' | b'+' | b'?' | b'^' | b'$' | b'.' | b'|' if !in_class => {
+                flush_literal(&mut literals, &mut current);
+            }
+            _ if !in_class => {
+                current.push(byte);
+            }
+            _ => {}
+        }
+    }
+
+    flush_literal(&mut literals, &mut current);
+    literals
+}
+
+fn best_literal_run(pattern: &str) -> Option<Vec<u8>> {
+    literal_runs(pattern).into_iter().max_by_key(Vec::len)
+}
+
+fn selector_from_positive_lookbehind(pattern: &str) -> Option<Vec<u8>> {
+    let prefix = "(?<=";
+    let start = pattern.find(prefix)?;
+    let after = start + prefix.len();
+    let rest = &pattern[after..];
+    let end = rest.find(')')?;
+    let candidate = &rest[..end];
+
+    if is_plain_literal(candidate) {
+        non_empty(candidate.as_bytes())
+    } else {
+        None
+    }
+}
+
+fn has_unescaped_or_any_depth(pattern: &str) -> bool {
+    let mut escaped = false;
+    let mut in_class = false;
+
+    for byte in pattern.bytes() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match byte {
+            b'\\' => escaped = true,
+            b'[' if !in_class => in_class = true,
+            b']' if in_class => in_class = false,
+            b'|' if !in_class => return true,
             _ => {}
         }
     }
 
     false
+}
+
+fn has_unhandled_group(pattern: &str) -> bool {
+    let mut escaped = false;
+    let mut in_class = false;
+
+    for byte in pattern.bytes() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match byte {
+            b'\\' => escaped = true,
+            b'[' if !in_class => in_class = true,
+            b']' if in_class => in_class = false,
+            b'(' | b')' if !in_class => return true,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn is_plain_literal(value: &str) -> bool {
+    value.bytes().all(|byte| {
+        !matches!(
+            byte,
+            b'[' | b']'
+                | b'('
+                | b')'
+                | b'{' 
+                | b'}'
+                | b'*'
+                | b'+'
+                | b'?'
+                | b'|'
+                | b'^'
+                | b'$'
+                | b'.'
+                | b'\\'
+        )
+    })
 }
 
 fn non_empty(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -405,11 +585,18 @@ fn non_empty(bytes: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-fn flush_best(best: &mut Vec<u8>, current: &mut Vec<u8>) {
-    if current.len() > best.len() {
-        *best = current.clone();
+fn flush_literal(literals: &mut Vec<Vec<u8>>, current: &mut Vec<u8>) {
+    if current.len() >= 2 {
+        literals.push(current.clone());
     }
     current.clear();
+}
+
+fn dedup_literals(mut literals: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    literals.retain(|literal| !literal.is_empty());
+    literals.sort();
+    literals.dedup();
+    literals
 }
 
 fn is_literal_escape(byte: u8) -> bool {
@@ -513,8 +700,23 @@ mod tests {
     }
 
     #[test]
-    fn conservative_literal_extracts_key_prefix() {
-        let lit = conservative_regex_literal(r#"key="[^"]+""#).unwrap();
-        assert_eq!(lit, br#"key=""#.to_vec());
+    fn regex_plan_extracts_required_literal() {
+        let plan = regex_selector_plan(r#"key="[^"]+""#);
+        assert_eq!(plan.kind(), "literal_all");
+        assert_eq!(plan.count(), 1);
+    }
+
+    #[test]
+    fn regex_plan_extracts_top_level_alternation() {
+        let plan = regex_selector_plan("error|failed|denied");
+        assert_eq!(plan.kind(), "literal_any");
+        assert_eq!(plan.count(), 3);
+    }
+
+    #[test]
+    fn regex_plan_extracts_noncapturing_alternation_prefix() {
+        let plan = regex_selector_plan(r"(?:foo|bar)[0-9]");
+        assert_eq!(plan.kind(), "literal_any");
+        assert_eq!(plan.count(), 2);
     }
 }

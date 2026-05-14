@@ -144,3 +144,46 @@ Added:
 Required result CSV:
 
 - `validation_results/phase0l_index_strategy_bench.csv`
+
+## Phase 0m - Selector extraction and postings prep
+
+Status: prepared in ChatGPT, pending Codex validation.
+
+Purpose:
+
+- Improve safe literal selector extraction for common regex patterns.
+- Record selector plan details in grep stats and benchmark CSV output.
+- Run an offline block-level postings probe before changing the `.zlg` format.
+
+Added:
+
+- selector plans: `literal_all`, `literal_any`, and `none`.
+- selector count in grep stats and benchmark CSV output.
+- top-level alternation selectors such as `error|failed|denied`.
+- noncapturing branch selectors such as `(?:foo|bar)[0-9]`.
+- positive lookbehind literal hints such as `(?<=key=")[^"]+`.
+- `tools/phase0m_postings_probe.py`.
+- `scripts/phase0m_selector_postings_once.sh`.
+- `scripts/phase0m_selector_smoke.sh`.
+
+## Phase 0n - K-gram graph/postings experiment
+
+Status: prepared in ChatGPT, pending Codex validation.
+
+Purpose:
+
+- Test whether graph/postings-style k-gram selectors can reduce estimated decoded bytes.
+- Compare bigram block presence, sparse trigram postings, overlapping bigram graph edges, and rarest-kgram selection.
+- Preserve compact CSV evidence for both the prebench run and the offline graph probe.
+- Avoid changing or freezing the `.zlg` format until the experiment shows a clear benefit.
+
+Added:
+
+- `tools/phase0n_kgram_graph_probe.py`.
+- `scripts/phase0n_kgram_graph_once.sh`.
+- `docs/PHASE0N_KGRAM_GRAPH_EXPERIMENT.md`.
+
+Required result CSVs:
+
+- `validation_results/phase0n_kgram_graph_bench.csv`.
+- `validation_results/phase0n_kgram_graph_probe.csv`.

@@ -1,0 +1,8 @@
+Phase 0m prep checkpoint created in ChatGPT.
+
+No Cargo was run in ChatGPT.
+
+Added improved selector extraction, selector_count stats, a selector smoke test,
+a postings design probe, Phase 0m one-command script, and Phase 0m docs.
+
+Next step: Codex validation with bounded fixes only.

@@ -211,12 +211,13 @@ struct GrepStats {
     matching_lines: u64,
     selector_kind: &'static str,
     selector_len: usize,
+    selector_count: usize,
 }
 
 impl GrepStats {
     fn to_json(&self) -> String {
         format!(
-            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {}\n}}\n",
+            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {}\n}}\n",
             self.files,
             self.chunks_total,
             self.chunks_skipped,
@@ -225,7 +226,8 @@ impl GrepStats {
             self.decoded_bytes,
             self.matching_lines,
             self.selector_kind,
-            self.selector_len
+            self.selector_len,
+            self.selector_count
         )
     }
 }
@@ -251,6 +253,7 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
     let mut stats = GrepStats {
         selector_kind: matcher.selector_kind(),
         selector_len: matcher.selector_len(),
+        selector_count: matcher.selector_count(),
         ..GrepStats::default()
     };
 

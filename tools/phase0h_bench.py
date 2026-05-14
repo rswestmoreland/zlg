@@ -100,6 +100,7 @@ FIELDNAMES = [
     "matching_lines",
     "selector_kind",
     "selector_len",
+    "selector_count",
     "notes",
 ]
 
@@ -337,8 +338,8 @@ def summarize(csv_path: Path, summary_path: Path, mode: str, corpus: Path, input
             "",
             "## zlg grep counter medians",
             "",
-            "| policy | pattern | repeats | chunks_total | chunks_skipped | chunks_decoded | decoded_bytes | matching_lines |",
-            "|---|---|---:|---:|---:|---:|---:|---:|",
+            "| name | policy | summary_mode | pattern | repeats | chunks_total | chunks_skipped | chunks_decoded | decoded_bytes | matching_lines | selector_kind | selector_len | selector_count |",
+            "|---|---|---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|",
         ])
         counter_groups: dict[tuple[str, str, str, str], list[dict[str, str]]] = {}
         for row in zlg_grep_rows:
@@ -354,10 +355,11 @@ def summarize(csv_path: Path, summary_path: Path, mode: str, corpus: Path, input
             name, policy, summary_mode, pattern_name = key
             selector_kind = next((row.get("selector_kind", "") for row in group if row.get("selector_kind")), "")
             selector_len = next((row.get("selector_len", "") for row in group if row.get("selector_len")), "")
+            selector_count = next((row.get("selector_count", "") for row in group if row.get("selector_count")), "")
             lines_out.append(
                 f"| {name} | {policy} | {summary_mode} | {pattern_name} | {len(group)} | {med('chunks_total')} | "
                 f"{med('chunks_skipped')} | {med('chunks_decoded')} | {med('decoded_bytes')} | "
-                f"{med('matching_lines')} | {selector_kind} | {selector_len} |"
+                f"{med('matching_lines')} | {selector_kind} | {selector_len} | {selector_count} |"
             )
 
     summary_path.write_text("\n".join(lines_out) + "\n", encoding="utf-8")
@@ -629,6 +631,7 @@ def main() -> int:
                             matching_lines=stats.get("matching_lines", ""),
                             selector_kind=stats.get("selector_kind", ""),
                             selector_len=stats.get("selector_len", ""),
+                            selector_count=stats.get("selector_count", ""),
                         )
 
                 if grep:

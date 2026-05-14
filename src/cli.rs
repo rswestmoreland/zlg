@@ -181,7 +181,6 @@ pub fn run_cat(args: CatArgs) -> Result<()> {
     Ok(())
 }
 
-
 #[derive(Debug, Default)]
 struct GrepStats {
     files: u64,
@@ -230,7 +229,15 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
 
     if args.input.is_empty() {
         let input = open_input(None)?;
-        let matches = grep_one(input, None, false, &matcher, &options, &mut stdout, &mut stats)?;
+        let matches = grep_one(
+            input,
+            None,
+            false,
+            &matcher,
+            &options,
+            &mut stdout,
+            &mut stats,
+        )?;
         write_grep_stats(args.stats_json.as_ref(), &stats)?;
         return grep_exit(matches);
     }

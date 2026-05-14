@@ -79,6 +79,7 @@ FIELDNAMES = [
     "kind",
     "name",
     "policy",
+    "summary_mode",
     "pattern_name",
     "engine",
     "command",
@@ -97,6 +98,8 @@ FIELDNAMES = [
     "chunks_decoded",
     "decoded_bytes",
     "matching_lines",
+    "selector_kind",
+    "selector_len",
     "notes",
 ]
 
@@ -272,14 +275,15 @@ def write_row(writer: csv.DictWriter[str], **kwargs: object) -> None:
 
 def summarize(csv_path: Path, summary_path: Path, mode: str, corpus: Path, input_bytes: int, lines: int) -> None:
     rows = list(csv.DictReader(csv_path.open("r", encoding="utf-8")))
-    grouped: dict[tuple[str, str, str, str], list[float]] = {}
-    sizes: dict[tuple[str, str, str, str], str] = {}
+    grouped: dict[tuple[str, str, str, str, str], list[float]] = {}
+    sizes: dict[tuple[str, str, str, str, str], str] = {}
 
     for row in rows:
         key = (
             row["kind"],
             row["name"],
-            row["policy"],
+            row.get("policy", ""),
+            row.get("summary_mode", ""),
             row["pattern_name"],
         )
         try:
@@ -307,21 +311,27 @@ def summarize(csv_path: Path, summary_path: Path, mode: str, corpus: Path, input
 
     for key in sorted(grouped):
         values = grouped[key]
-        kind, name, policy, pattern_name = key
+        kind, name, policy, summary_mode, pattern_name = key
         first_values = [
             float(row["first_output_seconds"])
             for row in rows
-            if (row["kind"], row["name"], row["policy"], row["pattern_name"]) == key
+            if (
+                row["kind"],
+                row["name"],
+                row.get("policy", ""),
+                row.get("summary_mode", ""),
+                row["pattern_name"],
+            ) == key
             and row.get("first_output_seconds")
         ]
         first_output = f"{statistics.median(first_values):.6f}" if first_values else ""
         lines_out.append(
-            f"| {kind} | {name} | {policy} | {pattern_name} | {len(values)} | "
+            f"| {kind} | {name} | {policy} | {summary_mode} | {pattern_name} | {len(values)} | "
             f"{statistics.median(values):.6f} | {min(values):.6f} | {max(values):.6f} | "
             f"{first_output} | {sizes.get(key, '')} |"
         )
 
-    zlg_grep_rows = [row for row in rows if row["kind"] == "grep" and row["name"] == "zlg_grep"]
+    zlg_grep_rows = [row for row in rows if row["kind"] == "grep" and row["name"].startswith("zlg_grep")]
     if zlg_grep_rows:
         lines_out.extend([
             "",
@@ -330,18 +340,24 @@ def summarize(csv_path: Path, summary_path: Path, mode: str, corpus: Path, input
             "| policy | pattern | repeats | chunks_total | chunks_skipped | chunks_decoded | decoded_bytes | matching_lines |",
             "|---|---|---:|---:|---:|---:|---:|---:|",
         ])
-        counter_groups: dict[tuple[str, str], list[dict[str, str]]] = {}
+        counter_groups: dict[tuple[str, str, str, str], list[dict[str, str]]] = {}
         for row in zlg_grep_rows:
-            counter_groups.setdefault((row["policy"], row["pattern_name"]), []).append(row)
+            counter_groups.setdefault(
+                (row["name"], row.get("policy", ""), row.get("summary_mode", ""), row["pattern_name"]),
+                [],
+            ).append(row)
         for key in sorted(counter_groups):
             group = counter_groups[key]
             def med(field: str) -> str:
                 values = [float(row[field]) for row in group if row.get(field)]
                 return f"{statistics.median(values):.0f}" if values else ""
-            policy, pattern_name = key
+            name, policy, summary_mode, pattern_name = key
+            selector_kind = next((row.get("selector_kind", "") for row in group if row.get("selector_kind")), "")
+            selector_len = next((row.get("selector_len", "") for row in group if row.get("selector_len")), "")
             lines_out.append(
-                f"| {policy} | {pattern_name} | {len(group)} | {med('chunks_total')} | "
-                f"{med('chunks_skipped')} | {med('chunks_decoded')} | {med('decoded_bytes')} | {med('matching_lines')} |"
+                f"| {name} | {policy} | {summary_mode} | {pattern_name} | {len(group)} | {med('chunks_total')} | "
+                f"{med('chunks_skipped')} | {med('chunks_decoded')} | {med('decoded_bytes')} | "
+                f"{med('matching_lines')} | {selector_kind} | {selector_len} |"
             )
 
     summary_path.write_text("\n".join(lines_out) + "\n", encoding="utf-8")
@@ -423,6 +439,11 @@ def main() -> int:
     parser.add_argument("--summary", default=None)
     parser.add_argument("--env-report", default=None)
     parser.add_argument("--keep-temp", action="store_true")
+    parser.add_argument(
+        "--include-no-index",
+        action="store_true",
+        help="also benchmark .zlg files written with --summary-mode none",
+    )
     args = parser.parse_args()
 
     mode = "quick" if args.quick else args.mode
@@ -512,34 +533,49 @@ def main() -> int:
                         output_bytes=zst.stat().st_size,
                     )
 
-                zlg_outputs: list[tuple[str, Path]] = []
+                zlg_outputs: list[tuple[str, str, Path]] = []
+                summary_modes = ["bitmap"]
+                if args.include_no_index:
+                    summary_modes.append("none")
                 for policy in policies:
-                    out = tmp_path / f"corpus.{policy}.zlg"
-                    elapsed, code, _, _ = run(
-                        [str(zlg), "compress", str(corpus), "--chunk-policy", policy, "-o", str(out)],
-                        repo,
-                    )
-                    zlg_outputs.append((policy, out))
-                    zlg_meta = inspect_zlg(out)
-                    write_row(
-                        writer,
-                        mode=mode,
-                        repeat=repeat,
-                        kind="compress",
-                        name="zlg",
-                        policy=policy,
-                        command=f"zlg compress --chunk-policy {policy}",
-                        wall_seconds=f"{elapsed:.6f}",
-                        exit_code=code,
-                        input_bytes=input_bytes,
-                        output_bytes=out.stat().st_size,
-                        chunk_count=zlg_meta.get("chunk_count", ""),
-                        zlg_compressed_payload_bytes=zlg_meta.get("zlg_compressed_payload_bytes", ""),
-                        zlg_summary_bytes=zlg_meta.get("zlg_summary_bytes", ""),
-                        zlg_overhead_bytes=zlg_meta.get("zlg_overhead_bytes", ""),
-                    )
+                    for summary_mode in summary_modes:
+                        out = tmp_path / f"corpus.{policy}.{summary_mode}.zlg"
+                        elapsed, code, _, _ = run(
+                            [
+                                str(zlg),
+                                "compress",
+                                str(corpus),
+                                "--chunk-policy",
+                                policy,
+                                "--summary-mode",
+                                summary_mode,
+                                "-o",
+                                str(out),
+                            ],
+                            repo,
+                        )
+                        zlg_outputs.append((policy, summary_mode, out))
+                        zlg_meta = inspect_zlg(out)
+                        write_row(
+                            writer,
+                            mode=mode,
+                            repeat=repeat,
+                            kind="compress",
+                            name="zlg" if summary_mode == "bitmap" else "zlg_no_index",
+                            policy=policy,
+                            summary_mode=summary_mode,
+                            command=f"zlg compress --chunk-policy {policy} --summary-mode {summary_mode}",
+                            wall_seconds=f"{elapsed:.6f}",
+                            exit_code=code,
+                            input_bytes=input_bytes,
+                            output_bytes=out.stat().st_size,
+                            chunk_count=zlg_meta.get("chunk_count", ""),
+                            zlg_compressed_payload_bytes=zlg_meta.get("zlg_compressed_payload_bytes", ""),
+                            zlg_summary_bytes=zlg_meta.get("zlg_summary_bytes", ""),
+                            zlg_overhead_bytes=zlg_meta.get("zlg_overhead_bytes", ""),
+                        )
 
-                for policy, zlg_file in zlg_outputs:
+                for policy, summary_mode, zlg_file in zlg_outputs:
                     cat_out = tmp_path / f"cat.{policy}.{repeat}.txt"
                     elapsed, code, out_len, _ = run([str(zlg), "cat", str(zlg_file)], repo, cat_out)
                     if sha256(cat_out) != sha256(corpus):
@@ -549,8 +585,9 @@ def main() -> int:
                         mode=mode,
                         repeat=repeat,
                         kind="cat",
-                        name="zlg_cat",
+                        name="zlg_cat" if summary_mode == "bitmap" else "zlg_cat_no_index",
                         policy=policy,
+                        summary_mode=summary_mode,
                         command="zlg cat",
                         wall_seconds=f"{elapsed:.6f}",
                         exit_code=code,
@@ -573,8 +610,9 @@ def main() -> int:
                             mode=mode,
                             repeat=repeat,
                             kind="grep",
-                            name="zlg_grep",
+                            name="zlg_grep" if summary_mode == "bitmap" else "zlg_grep_no_index",
                             policy=policy,
+                            summary_mode=summary_mode,
                             pattern_name=pattern_name,
                             engine=engine,
                             command="zlg grep <opts> <pattern> <zlg>",
@@ -589,6 +627,8 @@ def main() -> int:
                             chunks_decoded=stats.get("chunks_decoded", ""),
                             decoded_bytes=stats.get("decoded_bytes", ""),
                             matching_lines=stats.get("matching_lines", ""),
+                            selector_kind=stats.get("selector_kind", ""),
+                            selector_len=stats.get("selector_len", ""),
                         )
 
                 if grep:

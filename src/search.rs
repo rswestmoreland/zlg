@@ -22,15 +22,33 @@ pub struct GrepOptions {
 
 #[derive(Clone, Debug)]
 pub struct SearchSummary {
+    disabled: bool,
     byte_class: [u8; BYTE_CLASS_LEN],
     bigram: [u8; BIGRAM_LEN],
     lower_byte_class: [u8; BYTE_CLASS_LEN],
     lower_bigram: [u8; BIGRAM_LEN],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SearchSummaryMode {
+    Bitmap,
+    None,
+}
+
 impl SearchSummary {
+    pub fn disabled() -> Self {
+        Self {
+            disabled: true,
+            byte_class: [0u8; BYTE_CLASS_LEN],
+            bigram: [0u8; BIGRAM_LEN],
+            lower_byte_class: [0u8; BYTE_CLASS_LEN],
+            lower_bigram: [0u8; BIGRAM_LEN],
+        }
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut summary = Self {
+            disabled: false,
             byte_class: [0u8; BYTE_CLASS_LEN],
             bigram: [0u8; BIGRAM_LEN],
             lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -67,6 +85,10 @@ impl SearchSummary {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.is_empty() {
+            return Ok(Self::disabled());
+        }
+
         if bytes.len() != SUMMARY_LEN {
             return Err(anyhow!(
                 "invalid search summary length: expected {}, got {}",
@@ -102,6 +124,7 @@ impl SearchSummary {
         lower_bigram.copy_from_slice(&bytes[offset..offset + BIGRAM_LEN]);
 
         Ok(Self {
+            disabled: false,
             byte_class,
             bigram,
             lower_byte_class,
@@ -110,6 +133,10 @@ impl SearchSummary {
     }
 
     pub fn may_contain_literal(&self, literal: &[u8], ignore_case: bool) -> bool {
+        if self.disabled {
+            return true;
+        }
+
         if literal.is_empty() {
             return true;
         }
@@ -196,6 +223,18 @@ impl Matcher {
             Some(literal) => summary.may_contain_literal(literal, self.options.ignore_case),
             None => true,
         }
+    }
+
+    pub fn selector_kind(&self) -> &'static str {
+        if self.selector_literal.is_some() {
+            "literal"
+        } else {
+            "none"
+        }
+    }
+
+    pub fn selector_len(&self) -> usize {
+        self.selector_literal.as_ref().map_or(0, Vec::len)
     }
 
     pub fn line_matches(&self, line: &[u8]) -> Result<bool> {

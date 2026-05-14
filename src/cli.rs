@@ -1,6 +1,6 @@
 use crate::chunk::{ChunkPolicy, Chunker};
 use crate::format::{DecodedChunk, ZlgReader, ZlgWriter};
-use crate::search::{GrepOptions, Matcher};
+use crate::search::{GrepOptions, Matcher, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -84,6 +84,21 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
     }
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+pub enum SummaryModeArg {
+    Bitmap,
+    None,
+}
+
+impl From<SummaryModeArg> for SearchSummaryMode {
+    fn from(value: SummaryModeArg) -> Self {
+        match value {
+            SummaryModeArg::Bitmap => SearchSummaryMode::Bitmap,
+            SummaryModeArg::None => SearchSummaryMode::None,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct CompressArgs {
     pub input: Option<PathBuf>,
@@ -96,6 +111,9 @@ pub struct CompressArgs {
 
     #[arg(long, value_enum, default_value_t = ChunkPolicyArg::HybridProgressiveCap16m)]
     pub chunk_policy: ChunkPolicyArg,
+
+    #[arg(long, value_enum, default_value_t = SummaryModeArg::Bitmap)]
+    pub summary_mode: SummaryModeArg,
 }
 
 #[derive(Debug, Args)]
@@ -150,11 +168,12 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
     let input = open_input(args.input.as_ref())?;
     let output = open_output(args.output.as_ref())?;
     let policy: ChunkPolicy = args.chunk_policy.into();
+    let summary_mode: SearchSummaryMode = args.summary_mode.into();
 
     let mut reader = BufReader::new(input);
     let writer = BufWriter::new(output);
 
-    let mut zlg_writer = ZlgWriter::new(writer, policy.id(), args.level)?;
+    let mut zlg_writer = ZlgWriter::new(writer, policy.id(), args.level, summary_mode)?;
     let mut chunker = Chunker::new(policy);
 
     while let Some(chunk) = chunker.next_chunk(&mut reader)? {
@@ -190,19 +209,23 @@ struct GrepStats {
     chunks_decoded: u64,
     decoded_bytes: u64,
     matching_lines: u64,
+    selector_kind: &'static str,
+    selector_len: usize,
 }
 
 impl GrepStats {
     fn to_json(&self) -> String {
         format!(
-            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {}\n}}\n",
+            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {}\n}}\n",
             self.files,
             self.chunks_total,
             self.chunks_skipped,
             self.candidate_chunks,
             self.chunks_decoded,
             self.decoded_bytes,
-            self.matching_lines
+            self.matching_lines,
+            self.selector_kind,
+            self.selector_len
         )
     }
 }
@@ -225,7 +248,11 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
 
     let matcher = Matcher::new(&args.pattern, options.clone())?;
     let mut stdout = BufWriter::new(io::stdout().lock());
-    let mut stats = GrepStats::default();
+    let mut stats = GrepStats {
+        selector_kind: matcher.selector_kind(),
+        selector_len: matcher.selector_len(),
+        ..GrepStats::default()
+    };
 
     if args.input.is_empty() {
         let input = open_input(None)?;

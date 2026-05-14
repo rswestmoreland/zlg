@@ -1,5 +1,5 @@
 use crate::chunk::PlainChunk;
-use crate::search::SearchSummary;
+use crate::search::{SearchSummary, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
 use crc32fast::Hasher;
@@ -87,13 +87,19 @@ impl RawChunk {
 pub struct ZlgWriter<W: Write> {
     writer: CountingWriter<W>,
     level: i32,
+    summary_mode: SearchSummaryMode,
     directory: Vec<DirectoryEntry>,
     total_uncompressed_len: u64,
     total_lines: u64,
 }
 
 impl<W: Write> ZlgWriter<W> {
-    pub fn new(writer: W, chunk_policy_id: u32, level: i32) -> Result<Self> {
+    pub fn new(
+        writer: W,
+        chunk_policy_id: u32,
+        level: i32,
+        summary_mode: SearchSummaryMode,
+    ) -> Result<Self> {
         let mut writer = CountingWriter::new(writer);
 
         writer.write_all(GLOBAL_MAGIC)?;
@@ -107,6 +113,7 @@ impl<W: Write> ZlgWriter<W> {
         Ok(Self {
             writer,
             level,
+            summary_mode,
             directory: Vec::new(),
             total_uncompressed_len: 0,
             total_lines: 0,
@@ -115,8 +122,10 @@ impl<W: Write> ZlgWriter<W> {
 
     pub fn write_chunk(&mut self, chunk: &PlainChunk) -> Result<()> {
         let chunk_offset = self.writer.bytes_written();
-        let summary = SearchSummary::from_bytes(&chunk.data);
-        let summary_bytes = summary.encode();
+        let summary_bytes = match self.summary_mode {
+            SearchSummaryMode::Bitmap => SearchSummary::from_bytes(&chunk.data).encode(),
+            SearchSummaryMode::None => Vec::new(),
+        };
 
         let compressed = zstd::stream::encode_all(Cursor::new(&chunk.data), self.level)
             .context("failed to encode zstd chunk")?;
@@ -458,7 +467,7 @@ mod tests {
 
         let mut out = Vec::new();
         {
-            let mut writer = ZlgWriter::new(&mut out, 1, 1).unwrap();
+            let mut writer = ZlgWriter::new(&mut out, 1, 1, SearchSummaryMode::Bitmap).unwrap();
             writer.write_chunk(&chunk).unwrap();
             writer.finish().unwrap();
         }

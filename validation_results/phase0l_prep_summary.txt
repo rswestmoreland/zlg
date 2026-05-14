@@ -1,0 +1,11 @@
+Phase 0l prep checkpoint created in ChatGPT.
+
+Scope:
+- Add experimental zlg compress --summary-mode none for no-index .zlg baseline.
+- Preserve default bitmap summary mode.
+- Add selector_kind and selector_len to grep stats JSON.
+- Extend benchmark harness with --include-no-index.
+- Add Phase 0l analysis script for bitmap versus no-index comparisons.
+- Add Phase 0l one-command validation/prebench script.
+
+No Cargo was run in ChatGPT.

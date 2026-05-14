@@ -120,3 +120,27 @@ Codex Phase 0j prompt
 ```
 
 Phase 0j does not add async/concurrency and does not freeze the format.
+
+## Phase 0l - Index strategy comparison prep
+
+Status: prepared in ChatGPT, pending Codex validation.
+
+Purpose:
+
+- Compare current bitmap summaries against no-index `.zlg` files.
+- Preserve compact CSV evidence.
+- Clarify whether bitmap metadata helps enough to keep, replace, or make optional.
+- Defer async/parallel work until decoded-byte and metadata-cost evidence is clearer.
+
+Added:
+
+- `zlg compress --summary-mode none` experimental no-index mode.
+- `selector_kind` and `selector_len` fields in grep stats JSON.
+- `tools/phase0l_analyze_index_strategy.py`.
+- `scripts/phase0l_index_strategy_once.sh`.
+- `scripts/phase0l_no_index_smoke.sh`.
+- `docs/PHASE0L_INDEX_STRATEGY_COMPARISON.md`.
+
+Required result CSV:
+
+- `validation_results/phase0l_index_strategy_bench.csv`

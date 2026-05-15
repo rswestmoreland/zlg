@@ -393,7 +393,6 @@ impl BigramMeshSummary {
     }
 }
 
-
 fn has_ascii_uppercase(bytes: &[u8]) -> bool {
     bytes.iter().any(|byte| byte.is_ascii_uppercase())
 }

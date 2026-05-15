@@ -116,46 +116,51 @@ def positions(data: bytes, needle: bytes) -> list[int]:
 
 
 def path_exists(data: bytes, literal: bytes, k: int) -> bool:
-    if len(literal) < k:
-        return literal in data
-    first = literal[:k]
-    starts = positions(data, first)
-    if not starts:
-        return False
-    literal_grams = grams(literal, k)
-    for start in starts:
-        ok = True
-        for offset, gram in enumerate(literal_grams[1:], start=1):
-            if data[start + offset:start + offset + k] != gram:
-                ok = False
-                break
-        if ok:
-            return True
-    return False
+    # Contiguous k-gram path existence is equivalent to literal substring presence.
+    _ = k
+    return literal in data
 
 
 def block_edges(block: Block, k: int) -> set[tuple[bytes, bytes]]:
-    return set(edges(block.data, k))
+    key = (k, block.block_id)
+    cached = _BLOCK_EDGE_CACHE.get(key)
+    if cached is None:
+        cached = set(edges(block.data, k))
+        _BLOCK_EDGE_CACHE[key] = cached
+    return cached
 
 
 def block_grams(block: Block, k: int) -> set[bytes]:
     return set(grams(block.data, k))
 
 
+_BLOCK_EDGE_CACHE: dict[tuple[object, ...], set[tuple[bytes, bytes]]] = {}
+_BLOCK_EDGE_COUNTER_CACHE: dict[tuple[int, int], Counter] = {}
+
+
+def block_edge_counter(block: Block, k: int) -> Counter:
+    key = (k, block.block_id)
+    cached = _BLOCK_EDGE_COUNTER_CACHE.get(key)
+    if cached is None:
+        cached = Counter(edges(block.data, k))
+        _BLOCK_EDGE_COUNTER_CACHE[key] = cached
+    return cached
+
+
 def edge_frequency(blocks: list[Block], k: int) -> tuple[Counter, Counter]:
     df: Counter = Counter()
     occ: Counter = Counter()
     for block in blocks:
-        edge_list = edges(block.data, k)
-        occ.update(edge_list)
-        df.update(set(edge_list))
+        edge_counts = block_edge_counter(block, k)
+        occ.update(edge_counts)
+        df.update(edge_counts.keys())
     return df, occ
 
 
 def group_edge_frequency(blocks: list[Block], k: int) -> dict[int, Counter]:
     out: dict[int, Counter] = defaultdict(Counter)
     for block in blocks:
-        out[block.group_id].update(set(edges(block.data, k)))
+        out[block.group_id].update(block_edge_counter(block, k).keys())
     return dict(out)
 
 
@@ -319,8 +324,7 @@ def feature_stats(blocks: list[Block], feature_edges: list[tuple[bytes, bytes]],
     count = 0
 
     for block in blocks:
-        edge_list = edges(block.data, k)
-        edge_counts = Counter(edge_list)
+        edge_counts = block_edge_counter(block, k)
         block_count = min(edge_counts.get(edge, 0) for edge in feature_edges)
         if block_count > 0:
             df += 1

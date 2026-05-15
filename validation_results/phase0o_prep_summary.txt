@@ -1,0 +1,10 @@
+Phase 0o prep checkpoint.
+
+Scope:
+- Fixed Phase 0n rarest-kgram absent-gram behavior in the offline probe.
+- Added creative offline index probe with multiple block sizes, rare selectors,
+  sparse trigram, bigram graph edge, fixed rarest-kgram, and adaptive rarest-
+  kgram strategies.
+- Added Phase 0o one-command script and docs.
+
+No Cargo was run in ChatGPT.

@@ -159,10 +159,14 @@ def select_rarest_kgram(
             candidates.append((bigram_freq.get(gram, 0), "bigram", gram))
         for gram in grams3(literal):
             candidates.append((trigram_freq.get(gram, 0), "trigram", gram))
-        candidates = [item for item in candidates if item[0] > 0]
+        # Keep zero-frequency grams. If a required literal contains a gram that
+        # is absent globally, the selected block set should be empty, not all
+        # blocks. Phase 0n filtered zero-frequency grams and therefore made the
+        # no-match rarest-kgram path look worse than it should.
         candidates.sort(key=lambda item: (item[0], item[1], item[2]))
         chosen = candidates[:max(1, rarest_count)]
         if not chosen:
+            # Literal too short to produce grams; no safe pruning.
             literal_selected.append({block.block_id for block in blocks})
             continue
 

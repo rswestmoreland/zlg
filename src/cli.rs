@@ -263,7 +263,7 @@ struct GrepStats {
 impl GrepStats {
     fn to_json(&self) -> String {
         format!(
-            "{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {},\n  \"stream_decode\": {},\n  \"crc_checked_chunks\": {},\n  \"stream_early_stopped_chunks\": {}\n}}\n",
+            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {},\n  \"stream_decode\": {},\n  \"crc_checked_chunks\": {},\n  \"stream_early_stopped_chunks\": {}\n}}\n",
             self.files,
             self.chunks_total,
             self.chunks_skipped,
@@ -400,7 +400,9 @@ fn grep_one(
         }
 
         stats.candidate_chunks += 1;
-        let remaining = options.max_count.map(|limit| limit.saturating_sub(match_count));
+        let remaining = options
+            .max_count
+            .map(|limit| limit.saturating_sub(match_count));
         let chunk_result = if options.stream_decode {
             let (chunk_matches, outcome) = grep_streaming_chunk(
                 raw_chunk,

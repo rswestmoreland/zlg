@@ -27,6 +27,8 @@ pub enum Commands {
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum ChunkPolicyArg {
+    FixedLines512,
+    FixedLines1024,
     FixedLines64k,
     ProgressiveLines,
     Byte1m,
@@ -44,6 +46,14 @@ pub enum ChunkPolicyArg {
 impl From<ChunkPolicyArg> for ChunkPolicy {
     fn from(value: ChunkPolicyArg) -> Self {
         match value {
+            ChunkPolicyArg::FixedLines512 => ChunkPolicy::FixedLines {
+                lines: 512,
+                byte_cap: None,
+            },
+            ChunkPolicyArg::FixedLines1024 => ChunkPolicy::FixedLines {
+                lines: 1024,
+                byte_cap: None,
+            },
             ChunkPolicyArg::FixedLines64k => ChunkPolicy::FixedLines {
                 lines: 65_536,
                 byte_cap: None,
@@ -87,6 +97,7 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
 #[derive(Clone, Debug, ValueEnum)]
 pub enum SummaryModeArg {
     Bitmap,
+    PathWindow,
     None,
 }
 
@@ -94,6 +105,7 @@ impl From<SummaryModeArg> for SearchSummaryMode {
     fn from(value: SummaryModeArg) -> Self {
         match value {
             SummaryModeArg::Bitmap => SearchSummaryMode::Bitmap,
+            SummaryModeArg::PathWindow => SearchSummaryMode::PathWindow,
             SummaryModeArg::None => SearchSummaryMode::None,
         }
     }

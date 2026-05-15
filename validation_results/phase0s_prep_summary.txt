@@ -1,0 +1,18 @@
+Phase 0s prep summary
+
+Added experimental runtime path-window summary mode and small fixed-line search
+block policies.
+
+Source changes:
+- src/search.rs adds SearchSummaryMode::PathWindow and ZPW1 path-window summary
+- src/format.rs writes path-window summaries when selected
+- src/cli.rs exposes --summary-mode path-window
+- src/cli.rs/src/chunk.rs expose fixed-lines512 and fixed-lines1024 policies
+
+Tooling:
+- tools/phase0s_runtime_probe.py
+- scripts/phase0s_path_window_runtime_once.sh
+- docs/PHASE0S_PATH_WINDOW_RUNTIME_PROTOTYPE.md
+- docs/CODEX_PHASE0S_PROMPT.md
+
+No Cargo validation was run in ChatGPT.

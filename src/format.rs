@@ -124,6 +124,7 @@ impl<W: Write> ZlgWriter<W> {
         let chunk_offset = self.writer.bytes_written();
         let summary_bytes = match self.summary_mode {
             SearchSummaryMode::Bitmap => SearchSummary::from_bytes(&chunk.data).encode(),
+            SearchSummaryMode::PathWindow => SearchSummary::from_path_windows(&chunk.data).encode(),
             SearchSummaryMode::None => Vec::new(),
         };
 

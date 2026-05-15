@@ -12,6 +12,14 @@ impl ChunkPolicy {
     pub fn id(self) -> u32 {
         match self {
             ChunkPolicy::FixedLines {
+                lines: 512,
+                byte_cap: None,
+            } => 13,
+            ChunkPolicy::FixedLines {
+                lines: 1024,
+                byte_cap: None,
+            } => 14,
+            ChunkPolicy::FixedLines {
                 lines: 65_536,
                 byte_cap: None,
             } => 1,

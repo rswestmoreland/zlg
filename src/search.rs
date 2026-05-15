@@ -23,22 +23,38 @@ pub struct GrepOptions {
 #[derive(Clone, Debug)]
 pub struct SearchSummary {
     disabled: bool,
+    path_windows: Option<PathWindowSummary>,
     byte_class: [u8; BYTE_CLASS_LEN],
     bigram: [u8; BIGRAM_LEN],
     lower_byte_class: [u8; BYTE_CLASS_LEN],
     lower_bigram: [u8; BIGRAM_LEN],
 }
 
+#[derive(Clone, Debug)]
+struct PathWindowSummary {
+    hashes: Vec<u64>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchSummaryMode {
     Bitmap,
+    PathWindow,
     None,
 }
+
+const PATH_WINDOW_MAGIC: &[u8; 4] = b"ZPW1";
+const PATH_WINDOW_VERSION: u16 = 1;
+const PATH_WINDOW_MIN: usize = 6;
+const PATH_WINDOW_MID: usize = 8;
+const PATH_WINDOW_MAX: usize = 12;
+const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x100000001b3;
 
 impl SearchSummary {
     pub fn disabled() -> Self {
         Self {
             disabled: true,
+            path_windows: None,
             byte_class: [0u8; BYTE_CLASS_LEN],
             bigram: [0u8; BIGRAM_LEN],
             lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -49,6 +65,7 @@ impl SearchSummary {
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut summary = Self {
             disabled: false,
+            path_windows: None,
             byte_class: [0u8; BYTE_CLASS_LEN],
             bigram: [0u8; BIGRAM_LEN],
             lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -72,7 +89,42 @@ impl SearchSummary {
         summary
     }
 
+    pub fn from_path_windows(bytes: &[u8]) -> Self {
+        let mut hashes = Vec::new();
+        collect_window_hashes(bytes, &mut hashes);
+
+        let mut lower = bytes.to_vec();
+        lower.make_ascii_lowercase();
+        if lower != bytes {
+            collect_window_hashes(&lower, &mut hashes);
+        }
+
+        hashes.sort_unstable();
+        hashes.dedup();
+
+        Self {
+            disabled: false,
+            path_windows: Some(PathWindowSummary { hashes }),
+            byte_class: [0u8; BYTE_CLASS_LEN],
+            bigram: [0u8; BIGRAM_LEN],
+            lower_byte_class: [0u8; BYTE_CLASS_LEN],
+            lower_bigram: [0u8; BIGRAM_LEN],
+        }
+    }
+
     pub fn encode(&self) -> Vec<u8> {
+        if let Some(path_windows) = &self.path_windows {
+            let mut out = Vec::with_capacity(12 + path_windows.hashes.len() * 8);
+            out.extend_from_slice(PATH_WINDOW_MAGIC);
+            out.extend_from_slice(&PATH_WINDOW_VERSION.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&(path_windows.hashes.len() as u32).to_le_bytes());
+            for hash in &path_windows.hashes {
+                out.extend_from_slice(&hash.to_le_bytes());
+            }
+            return out;
+        }
+
         let mut out = Vec::with_capacity(SUMMARY_LEN);
         out.extend_from_slice(SUMMARY_MAGIC);
         out.extend_from_slice(&SUMMARY_VERSION.to_le_bytes());
@@ -87,6 +139,43 @@ impl SearchSummary {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() {
             return Ok(Self::disabled());
+        }
+
+        if bytes.len() >= 12 && &bytes[..4] == PATH_WINDOW_MAGIC {
+            let version = u16::from_le_bytes([bytes[4], bytes[5]]);
+            if version != PATH_WINDOW_VERSION {
+                return Err(anyhow!("unsupported path-window summary version {version}"));
+            }
+
+            let count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+            let expected = 12 + count * 8;
+            if bytes.len() != expected {
+                return Err(anyhow!(
+                    "invalid path-window summary length: expected {}, got {}",
+                    expected,
+                    bytes.len()
+                ));
+            }
+
+            let mut hashes = Vec::with_capacity(count);
+            let mut offset = 12;
+            for _ in 0..count {
+                let mut raw = [0u8; 8];
+                raw.copy_from_slice(&bytes[offset..offset + 8]);
+                hashes.push(u64::from_le_bytes(raw));
+                offset += 8;
+            }
+            hashes.sort_unstable();
+            hashes.dedup();
+
+            return Ok(Self {
+                disabled: false,
+                path_windows: Some(PathWindowSummary { hashes }),
+                byte_class: [0u8; BYTE_CLASS_LEN],
+                bigram: [0u8; BIGRAM_LEN],
+                lower_byte_class: [0u8; BYTE_CLASS_LEN],
+                lower_bigram: [0u8; BIGRAM_LEN],
+            });
         }
 
         if bytes.len() != SUMMARY_LEN {
@@ -125,6 +214,7 @@ impl SearchSummary {
 
         Ok(Self {
             disabled: false,
+            path_windows: None,
             byte_class,
             bigram,
             lower_byte_class,
@@ -150,6 +240,10 @@ impl SearchSummary {
             literal
         };
 
+        if let Some(path_windows) = &self.path_windows {
+            return path_windows.may_contain_literal(literal);
+        }
+
         let byte_class = if ignore_case {
             &self.lower_byte_class
         } else {
@@ -170,6 +264,49 @@ impl SearchSummary {
             .windows(2)
             .all(|pair| has_bigram_bit(bigram, pair[0], pair[1]))
     }
+}
+
+impl PathWindowSummary {
+    fn may_contain_literal(&self, literal: &[u8]) -> bool {
+        if literal.len() < PATH_WINDOW_MIN {
+            return true;
+        }
+
+        let window = if literal.len() >= PATH_WINDOW_MAX {
+            PATH_WINDOW_MAX
+        } else if literal.len() >= PATH_WINDOW_MID {
+            PATH_WINDOW_MID
+        } else {
+            PATH_WINDOW_MIN
+        };
+
+        literal
+            .windows(window)
+            .all(|part| self.hashes.binary_search(&hash_window(window as u8, part)).is_ok())
+    }
+}
+
+fn collect_window_hashes(bytes: &[u8], hashes: &mut Vec<u64>) {
+    for window in [PATH_WINDOW_MIN, PATH_WINDOW_MID, PATH_WINDOW_MAX] {
+        if bytes.len() < window {
+            continue;
+        }
+
+        for part in bytes.windows(window) {
+            hashes.push(hash_window(window as u8, part));
+        }
+    }
+}
+
+fn hash_window(window_len: u8, bytes: &[u8]) -> u64 {
+    let mut hash = FNV_OFFSET;
+    hash ^= window_len as u64;
+    hash = hash.wrapping_mul(FNV_PRIME);
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
 }
 
 #[derive(Debug)]
@@ -507,11 +644,59 @@ fn selector_from_positive_lookbehind(pattern: &str) -> Option<Vec<u8>> {
     let end = rest.find(')')?;
     let candidate = &rest[..end];
 
-    if is_plain_literal(candidate) {
-        non_empty(candidate.as_bytes())
+    let literal = unescape_fixed_literal(candidate)?;
+    if literal.len() >= 2 {
+        Some(literal)
     } else {
         None
     }
+}
+
+fn unescape_fixed_literal(value: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut escaped = false;
+
+    for byte in value.bytes() {
+        if escaped {
+            if is_literal_escape(byte) {
+                out.push(unescape_literal(byte));
+                escaped = false;
+                continue;
+            }
+            return None;
+        }
+
+        if byte == b'\\' {
+            escaped = true;
+            continue;
+        }
+
+        if matches!(
+            byte,
+            b'[' | b']'
+                | b'('
+                | b')'
+                | b'{'
+                | b'}'
+                | b'*'
+                | b'+'
+                | b'?'
+                | b'|'
+                | b'^'
+                | b'$'
+                | b'.'
+        ) {
+            return None;
+        }
+
+        out.push(byte);
+    }
+
+    if escaped {
+        return None;
+    }
+
+    Some(out)
 }
 
 fn has_unescaped_or_any_depth(pattern: &str) -> bool {
@@ -699,6 +884,19 @@ mod tests {
             matches,
             vec![b"Error".to_vec(), b"ERROR".to_vec(), b"error".to_vec()]
         );
+    }
+
+    #[test]
+    fn path_window_summary_filters_long_literals() {
+        let summary = SearchSummary::from_path_windows(b"alpha src_ip=198.18.99.123 omega\n");
+        assert!(summary.may_contain_literal(b"198.18.99.123", false));
+        assert!(!summary.may_contain_literal(b"198.18.99.124", false));
+    }
+
+    #[test]
+    fn positive_lookbehind_unescapes_literal_selector() {
+        let literal = selector_from_positive_lookbehind(r#"(?<=key=\")[^\"]+"#).unwrap();
+        assert_eq!(literal, br#"key=""#.to_vec());
     }
 
     #[test]

@@ -30,6 +30,7 @@ pub enum ChunkPolicyArg {
     FixedLines512,
     FixedLines1024,
     FixedLines2048,
+    FixedLines4096,
     FixedLines64k,
     ProgressiveLines,
     Byte1m,
@@ -57,6 +58,10 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
             },
             ChunkPolicyArg::FixedLines2048 => ChunkPolicy::FixedLines {
                 lines: 2048,
+                byte_cap: None,
+            },
+            ChunkPolicyArg::FixedLines4096 => ChunkPolicy::FixedLines {
+                lines: 4096,
                 byte_cap: None,
             },
             ChunkPolicyArg::FixedLines64k => ChunkPolicy::FixedLines {

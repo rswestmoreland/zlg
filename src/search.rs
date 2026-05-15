@@ -104,9 +104,9 @@ impl SearchSummary {
         let mut hashes = Vec::new();
         collect_window_hashes(bytes, &mut hashes);
 
-        let mut lower = bytes.to_vec();
-        lower.make_ascii_lowercase();
-        if lower != bytes {
+        if has_ascii_uppercase(bytes) {
+            let mut lower = bytes.to_vec();
+            lower.make_ascii_lowercase();
             collect_window_hashes(&lower, &mut hashes);
         }
 
@@ -125,12 +125,13 @@ impl SearchSummary {
     }
 
     pub fn from_bigram_mesh(bytes: &[u8]) -> Self {
-        let mut edges = Vec::new();
+        let mut edges = Vec::with_capacity(bytes.len().saturating_sub(2));
         collect_bigram_edges(bytes, &mut edges);
 
-        let mut lower = bytes.to_vec();
-        lower.make_ascii_lowercase();
-        if lower != bytes {
+        if has_ascii_uppercase(bytes) {
+            let mut lower = bytes.to_vec();
+            lower.make_ascii_lowercase();
+            edges.reserve(lower.len().saturating_sub(2));
             collect_bigram_edges(&lower, &mut edges);
         }
 
@@ -390,6 +391,11 @@ impl BigramMeshSummary {
             .windows(3)
             .all(|edge| self.edges.binary_search(&pack_bigram_edge(edge)).is_ok())
     }
+}
+
+
+fn has_ascii_uppercase(bytes: &[u8]) -> bool {
+    bytes.iter().any(|byte| byte.is_ascii_uppercase())
 }
 
 fn collect_bigram_edges(bytes: &[u8], edges: &mut Vec<u32>) {

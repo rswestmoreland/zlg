@@ -1,0 +1,13 @@
+Phase 0p prep summary
+
+Added offline adaptive weighted k-gram planner experiment.
+
+New files:
+- tools/phase0p_adaptive_planner_probe.py
+- scripts/phase0p_adaptive_planner_once.sh
+- docs/PHASE0P_ADAPTIVE_WEIGHTED_KGRAM_PLANNER.md
+- docs/CODEX_PHASE0P_PROMPT.md
+
+This phase compares full scan, rarest trigram, graph-edge, entropy-gated,
+adaptive, and cost-gated planner variants using DF/IDF-style feature weights.
+No Cargo validation was run in ChatGPT.

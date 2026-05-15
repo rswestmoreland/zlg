@@ -1,0 +1,12 @@
+Phase 0t prep summary
+
+Added:
+- tools/phase0t_mesh_shootout.py
+- scripts/phase0t_mesh_shootout_once.sh
+- docs/PHASE0T_KGRAM_MESH_SHOOTOUT.md
+- docs/CODEX_PHASE0T_PROMPT.md
+
+The probe compares multiple k-gram mesh implementation variants, including
+edge postings, sorted edge tables, rarest-edge traversal, hybrid bigram/trigram
+selection, and per-group local meshes. It records block selection and heuristic
+storage estimates. No Cargo validation was run in ChatGPT.

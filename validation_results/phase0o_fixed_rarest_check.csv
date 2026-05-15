@@ -1,0 +1,29 @@
+pattern_name,engine,pattern,selector_mode,selector_count,strategy,block_lines,total_blocks,selected_blocks,selected_ratio,estimated_decoded_bytes,estimated_decoded_ratio
+literal_failed_password,regex,failed password,all,1,bigram_block,4096,31,31,1.000000,9218316,1.000000
+literal_failed_password,regex,failed password,all,1,trigram_sparse,4096,31,31,1.000000,9218316,1.000000
+literal_failed_password,regex,failed password,all,1,bigram_graph_edges,4096,31,31,1.000000,9218316,1.000000
+literal_failed_password,regex,failed password,all,1,rarest_kgram_2,4096,31,31,1.000000,9218316,1.000000
+alternation_error_failed_denied,regex,error|failed|denied,any,3,bigram_block,4096,31,31,1.000000,9218316,1.000000
+alternation_error_failed_denied,regex,error|failed|denied,any,3,trigram_sparse,4096,31,31,1.000000,9218316,1.000000
+alternation_error_failed_denied,regex,error|failed|denied,any,3,bigram_graph_edges,4096,31,31,1.000000,9218316,1.000000
+alternation_error_failed_denied,regex,error|failed|denied,any,3,rarest_kgram_2,4096,31,31,1.000000,9218316,1.000000
+quoted_key,regex,"key=\""[^\""]+\""",all,1,bigram_block,4096,31,31,1.000000,9218316,1.000000
+quoted_key,regex,"key=\""[^\""]+\""",all,1,trigram_sparse,4096,31,31,1.000000,9218316,1.000000
+quoted_key,regex,"key=\""[^\""]+\""",all,1,bigram_graph_edges,4096,31,31,1.000000,9218316,1.000000
+quoted_key,regex,"key=\""[^\""]+\""",all,1,rarest_kgram_2,4096,31,31,1.000000,9218316,1.000000
+branch_suffix,regex,(?:foo|bar)[0-9],any,2,bigram_block,4096,31,31,1.000000,9218316,1.000000
+branch_suffix,regex,(?:foo|bar)[0-9],any,2,trigram_sparse,4096,31,31,1.000000,9218316,1.000000
+branch_suffix,regex,(?:foo|bar)[0-9],any,2,bigram_graph_edges,4096,31,31,1.000000,9218316,1.000000
+branch_suffix,regex,(?:foo|bar)[0-9],any,2,rarest_kgram_2,4096,31,31,1.000000,9218316,1.000000
+src_ip,regex,src_ip=[0-9.]+,all,1,bigram_block,4096,31,31,1.000000,9218316,1.000000
+src_ip,regex,src_ip=[0-9.]+,all,1,trigram_sparse,4096,31,31,1.000000,9218316,1.000000
+src_ip,regex,src_ip=[0-9.]+,all,1,bigram_graph_edges,4096,31,31,1.000000,9218316,1.000000
+src_ip,regex,src_ip=[0-9.]+,all,1,rarest_kgram_2,4096,31,31,1.000000,9218316,1.000000
+lookbehind_key,fancy,"(?<=key=\"")[^\""]+",none,0,bigram_block,4096,31,31,1.000000,9218316,1.000000
+lookbehind_key,fancy,"(?<=key=\"")[^\""]+",none,0,trigram_sparse,4096,31,31,1.000000,9218316,1.000000
+lookbehind_key,fancy,"(?<=key=\"")[^\""]+",none,0,bigram_graph_edges,4096,31,31,1.000000,9218316,1.000000
+lookbehind_key,fancy,"(?<=key=\"")[^\""]+",none,0,rarest_kgram_2,4096,31,31,1.000000,9218316,1.000000
+no_match_literal,fixed,no_such_token_zzzz,all,1,bigram_block,4096,31,0,0.000000,0,0.000000
+no_match_literal,fixed,no_such_token_zzzz,all,1,trigram_sparse,4096,31,0,0.000000,0,0.000000
+no_match_literal,fixed,no_such_token_zzzz,all,1,bigram_graph_edges,4096,31,0,0.000000,0,0.000000
+no_match_literal,fixed,no_such_token_zzzz,all,1,rarest_kgram_2,4096,31,0,0.000000,0,0.000000

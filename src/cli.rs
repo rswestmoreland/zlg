@@ -133,6 +133,25 @@ impl From<SummaryModeArg> for SearchSummaryMode {
     }
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+pub enum BuildProfileArg {
+    Current,
+    MeshScratch,
+    ZstdBulk,
+    Combined,
+}
+
+impl From<BuildProfileArg> for BuildProfile {
+    fn from(value: BuildProfileArg) -> Self {
+        match value {
+            BuildProfileArg::Current => BuildProfile::Current,
+            BuildProfileArg::MeshScratch => BuildProfile::MeshScratch,
+            BuildProfileArg::ZstdBulk => BuildProfile::ZstdBulk,
+            BuildProfileArg::Combined => BuildProfile::Combined,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct CompressArgs {
     pub input: Option<PathBuf>,
@@ -148,6 +167,12 @@ pub struct CompressArgs {
 
     #[arg(long, value_enum, default_value_t = SummaryModeArg::Bitmap)]
     pub summary_mode: SummaryModeArg,
+
+    #[arg(long, value_enum, default_value_t = BuildProfileArg::Current)]
+    pub build_profile: BuildProfileArg,
+
+    #[arg(long)]
+    pub build_stats_json: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -216,14 +241,23 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
     let mut reader = BufReader::new(input);
     let writer = BufWriter::new(output);
 
-    let mut zlg_writer = ZlgWriter::new(writer, policy.id(), args.level, summary_mode)?;
+    let build_profile: BuildProfile = args.build_profile.into();
+    let mut zlg_writer =
+        ZlgWriter::new_with_profile(writer, policy.id(), args.level, summary_mode, build_profile)?;
     let mut chunker = Chunker::new(policy);
 
     while let Some(chunk) = chunker.next_chunk(&mut reader)? {
         zlg_writer.write_chunk(&chunk)?;
     }
 
+    let build_stats = zlg_writer.build_stats();
     zlg_writer.finish()?;
+
+    if let Some(path) = args.build_stats_json {
+        std::fs::write(path, build_stats.to_json(build_profile))
+            .context("failed to write build stats json")?;
+    }
+
     Ok(())
 }
 

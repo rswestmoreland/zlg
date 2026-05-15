@@ -1,9 +1,10 @@
 use crate::chunk::PlainChunk;
-use crate::search::{SearchSummary, SearchSummaryMode};
+use crate::search::{encode_bigram_mesh_summary_into, SearchSummary, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
 use crc32fast::Hasher;
 use std::io::{Cursor, ErrorKind, Read, Write};
+use std::time::Instant;
 
 const GLOBAL_MAGIC: &[u8; 8] = b"ZLG1P0\0\0";
 const CHUNK_MAGIC: &[u8; 4] = b"ZCH1";
@@ -177,13 +178,76 @@ impl RawChunk {
 }
 
 #[derive(Debug)]
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildProfile {
+    Current,
+    MeshScratch,
+    ZstdBulk,
+    Combined,
+}
+
+impl BuildProfile {
+    fn uses_mesh_scratch(self) -> bool {
+        matches!(self, Self::MeshScratch | Self::Combined)
+    }
+
+    fn uses_zstd_bulk(self) -> bool {
+        matches!(self, Self::ZstdBulk | Self::Combined)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Current => "current",
+            Self::MeshScratch => "mesh-scratch",
+            Self::ZstdBulk => "zstd-bulk",
+            Self::Combined => "combined",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BuildStats {
+    pub chunks: u64,
+    pub summary_ns: u128,
+    pub zstd_ns: u128,
+    pub write_ns: u128,
+    pub total_ns: u128,
+    pub summary_bytes: u64,
+    pub compressed_bytes: u64,
+    pub uncompressed_bytes: u64,
+}
+
+impl BuildStats {
+    pub fn to_json(self, profile: BuildProfile) -> String {
+        format!(
+            "{{\\n  \\"build_profile\\": \\"{}\\",\\n  \\"chunks\\": {},\\n  \\"summary_ns\\": {},\\n  \\"zstd_ns\\": {},\\n  \\"write_ns\\": {},\\n  \\"total_ns\\": {},\\n  \\"summary_bytes\\": {},\\n  \\"compressed_bytes\\": {},\\n  \\"uncompressed_bytes\\": {}\\n}}\\n",
+            profile.as_str(),
+            self.chunks,
+            self.summary_ns,
+            self.zstd_ns,
+            self.write_ns,
+            self.total_ns,
+            self.summary_bytes,
+            self.compressed_bytes,
+            self.uncompressed_bytes
+        )
+    }
+}
+
 pub struct ZlgWriter<W: Write> {
     writer: CountingWriter<W>,
     level: i32,
     summary_mode: SearchSummaryMode,
+    build_profile: BuildProfile,
+    build_stats: BuildStats,
     directory: Vec<DirectoryEntry>,
     total_uncompressed_len: u64,
     total_lines: u64,
+    mesh_edges_scratch: Vec<u32>,
+    mesh_lower_scratch: Vec<u8>,
+    mesh_summary_scratch: Vec<u8>,
+    zstd_compressor: Option<zstd::bulk::Compressor<'static>>,
 }
 
 impl<W: Write> ZlgWriter<W> {
@@ -192,6 +256,22 @@ impl<W: Write> ZlgWriter<W> {
         chunk_policy_id: u32,
         level: i32,
         summary_mode: SearchSummaryMode,
+    ) -> Result<Self> {
+        Self::new_with_profile(
+            writer,
+            chunk_policy_id,
+            level,
+            summary_mode,
+            BuildProfile::Current,
+        )
+    }
+
+    pub fn new_with_profile(
+        writer: W,
+        chunk_policy_id: u32,
+        level: i32,
+        summary_mode: SearchSummaryMode,
+        build_profile: BuildProfile,
     ) -> Result<Self> {
         let mut writer = CountingWriter::new(writer);
 
@@ -203,27 +283,78 @@ impl<W: Write> ZlgWriter<W> {
         write_u32(&mut writer, 0)?;
         writer.write_all(&[0u8; 8])?;
 
+        let zstd_compressor = if build_profile.uses_zstd_bulk() {
+            Some(
+                zstd::bulk::Compressor::new(level)
+                    .context("failed to create reusable zstd bulk compressor")?,
+            )
+        } else {
+            None
+        };
+
         Ok(Self {
             writer,
             level,
             summary_mode,
+            build_profile,
+            build_stats: BuildStats::default(),
             directory: Vec::new(),
             total_uncompressed_len: 0,
             total_lines: 0,
+            mesh_edges_scratch: Vec::new(),
+            mesh_lower_scratch: Vec::new(),
+            mesh_summary_scratch: Vec::new(),
+            zstd_compressor,
         })
     }
 
+    pub fn build_stats(&self) -> BuildStats {
+        self.build_stats
+    }
+
     pub fn write_chunk(&mut self, chunk: &PlainChunk) -> Result<()> {
+        let total_start = Instant::now();
         let chunk_offset = self.writer.bytes_written();
-        let summary_bytes = match self.summary_mode {
-            SearchSummaryMode::Bitmap => SearchSummary::from_bytes(&chunk.data).encode(),
-            SearchSummaryMode::PathWindow => SearchSummary::from_path_windows(&chunk.data).encode(),
-            SearchSummaryMode::MeshBigram => SearchSummary::from_bigram_mesh(&chunk.data).encode(),
-            SearchSummaryMode::None => Vec::new(),
+
+        let summary_start = Instant::now();
+        let summary_is_scratch =
+            self.summary_mode == SearchSummaryMode::MeshBigram && self.build_profile.uses_mesh_scratch();
+        let summary_owned;
+
+        if summary_is_scratch {
+            encode_bigram_mesh_summary_into(
+                &chunk.data,
+                &mut self.mesh_edges_scratch,
+                &mut self.mesh_lower_scratch,
+                &mut self.mesh_summary_scratch,
+            );
+            summary_owned = Vec::new();
+        } else {
+            summary_owned = match self.summary_mode {
+                SearchSummaryMode::Bitmap => SearchSummary::from_bytes(&chunk.data).encode(),
+                SearchSummaryMode::PathWindow => SearchSummary::from_path_windows(&chunk.data).encode(),
+                SearchSummaryMode::MeshBigram => SearchSummary::from_bigram_mesh(&chunk.data).encode(),
+                SearchSummaryMode::None => Vec::new(),
+            };
+        }
+
+        let summary_ns = summary_start.elapsed().as_nanos();
+        let summary_len = if summary_is_scratch {
+            self.mesh_summary_scratch.len()
+        } else {
+            summary_owned.len()
         };
 
-        let compressed = zstd::stream::encode_all(Cursor::new(&chunk.data), self.level)
-            .context("failed to encode zstd chunk")?;
+        let zstd_start = Instant::now();
+        let compressed = if let Some(compressor) = self.zstd_compressor.as_mut() {
+            compressor
+                .compress(&chunk.data)
+                .context("failed to encode zstd chunk with reusable bulk compressor")?
+        } else {
+            zstd::stream::encode_all(Cursor::new(&chunk.data), self.level)
+                .context("failed to encode zstd chunk")?
+        };
+        let zstd_ns = zstd_start.elapsed().as_nanos();
 
         let header = ChunkHeader {
             flags: chunk.flags,
@@ -232,15 +363,21 @@ impl<W: Write> ZlgWriter<W> {
             line_count: chunk.line_count,
             uncompressed_len: chunk.data.len() as u64,
             compressed_len: compressed.len() as u64,
-            summary_len: summary_bytes.len() as u32,
+            summary_len: summary_len as u32,
             crc32: crc32(&chunk.data),
         };
 
+        let write_start = Instant::now();
         self.write_chunk_header(&header)?;
         let summary_offset = self.writer.bytes_written();
-        self.writer.write_all(&summary_bytes)?;
+        if summary_is_scratch {
+            self.writer.write_all(&self.mesh_summary_scratch)?;
+        } else {
+            self.writer.write_all(&summary_owned)?;
+        }
         let compressed_offset = self.writer.bytes_written();
         self.writer.write_all(&compressed)?;
+        let write_ns = write_start.elapsed().as_nanos();
 
         self.directory.push(DirectoryEntry {
             chunk_offset,
@@ -256,6 +393,15 @@ impl<W: Write> ZlgWriter<W> {
 
         self.total_uncompressed_len += header.uncompressed_len;
         self.total_lines += header.line_count;
+
+        self.build_stats.chunks += 1;
+        self.build_stats.summary_ns += summary_ns;
+        self.build_stats.zstd_ns += zstd_ns;
+        self.build_stats.write_ns += write_ns;
+        self.build_stats.total_ns += total_start.elapsed().as_nanos();
+        self.build_stats.summary_bytes += header.summary_len as u64;
+        self.build_stats.compressed_bytes += header.compressed_len;
+        self.build_stats.uncompressed_bytes += header.uncompressed_len;
 
         Ok(())
     }

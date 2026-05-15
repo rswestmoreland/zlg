@@ -167,21 +167,7 @@ impl SearchSummary {
 
         if let Some(mesh) = &self.mesh_bigrams {
             let mut out = Vec::with_capacity(12 + mesh.edges.len() * 3);
-            out.extend_from_slice(BIGRAM_MESH_MAGIC);
-            out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
-            out.extend_from_slice(&0u16.to_le_bytes());
-            out.extend_from_slice(&(mesh.edges.len() as u32).to_le_bytes());
-
-            let mut previous = 0u32;
-            for (index, edge) in mesh.edges.iter().copied().enumerate() {
-                let delta = if index == 0 {
-                    edge
-                } else {
-                    edge.saturating_sub(previous)
-                };
-                write_varint_u32(delta, &mut out);
-                previous = edge;
-            }
+            encode_bigram_mesh_edges_into(&mesh.edges, &mut out);
             return out;
         }
 
@@ -440,6 +426,51 @@ impl BigramMeshSummary {
 
 fn has_ascii_uppercase(bytes: &[u8]) -> bool {
     bytes.iter().any(|byte| byte.is_ascii_uppercase())
+}
+
+
+pub fn encode_bigram_mesh_summary_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) {
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2));
+    collect_bigram_edges(bytes, edges);
+
+    if has_ascii_uppercase(bytes) {
+        lower.clear();
+        lower.extend_from_slice(bytes);
+        lower.make_ascii_lowercase();
+        edges.reserve(lower.len().saturating_sub(2));
+        collect_bigram_edges(lower, edges);
+    }
+
+    edges.sort_unstable();
+    edges.dedup();
+
+    encode_bigram_mesh_edges_into(edges, out);
+}
+
+fn encode_bigram_mesh_edges_into(edges: &[u32], out: &mut Vec<u8>) {
+    out.clear();
+    out.reserve(12 + edges.len().saturating_mul(2));
+    out.extend_from_slice(BIGRAM_MESH_MAGIC);
+    out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(edges.len() as u32).to_le_bytes());
+
+    let mut previous = 0u32;
+    for (index, edge) in edges.iter().copied().enumerate() {
+        let delta = if index == 0 {
+            edge
+        } else {
+            edge.saturating_sub(previous)
+        };
+        write_varint_u32(delta, out);
+        previous = edge;
+    }
 }
 
 fn collect_bigram_edges(bytes: &[u8], edges: &mut Vec<u32>) {

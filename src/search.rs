@@ -280,9 +280,11 @@ impl PathWindowSummary {
             PATH_WINDOW_MIN
         };
 
-        literal
-            .windows(window)
-            .all(|part| self.hashes.binary_search(&hash_window(window as u8, part)).is_ok())
+        literal.windows(window).all(|part| {
+            self.hashes
+                .binary_search(&hash_window(window as u8, part))
+                .is_ok()
+        })
     }
 }
 

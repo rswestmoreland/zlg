@@ -121,8 +121,17 @@ def path_exists(data: bytes, literal: bytes, k: int) -> bool:
     return literal in data
 
 
+def block_cache_key(block: Block, k: int) -> tuple[int, int, int, int, int]:
+    return (k, block.block_id, block.first_line, block.line_count, block.byte_count)
+
+
+def clear_block_caches() -> None:
+    _BLOCK_EDGE_CACHE.clear()
+    _BLOCK_EDGE_COUNTER_CACHE.clear()
+
+
 def block_edges(block: Block, k: int) -> set[tuple[bytes, bytes]]:
-    key = (k, block.block_id)
+    key = block_cache_key(block, k)
     cached = _BLOCK_EDGE_CACHE.get(key)
     if cached is None:
         cached = set(edges(block.data, k))
@@ -135,11 +144,11 @@ def block_grams(block: Block, k: int) -> set[bytes]:
 
 
 _BLOCK_EDGE_CACHE: dict[tuple[object, ...], set[tuple[bytes, bytes]]] = {}
-_BLOCK_EDGE_COUNTER_CACHE: dict[tuple[int, int], Counter] = {}
+_BLOCK_EDGE_COUNTER_CACHE: dict[tuple[int, int, int, int, int], Counter] = {}
 
 
 def block_edge_counter(block: Block, k: int) -> Counter:
-    key = (k, block.block_id)
+    key = block_cache_key(block, k)
     cached = _BLOCK_EDGE_COUNTER_CACHE.get(key)
     if cached is None:
         cached = Counter(edges(block.data, k))
@@ -499,6 +508,7 @@ def run_probe(lines: int, needle_ratio: float, block_sizes: list[int], group_siz
             if group_lines < block_lines:
                 continue
             blocks = make_blocks(raw_lines, block_lines, group_lines)
+            clear_block_caches()
 
             stats = {
                 ("edge_postings_bigram", 2): storage_for_mesh(blocks, 2, "edge_postings", group_lines),
@@ -692,6 +702,40 @@ def run_probe(lines: int, needle_ratio: float, block_sizes: list[int], group_siz
     return rows, meta
 
 
+
+def validate_known_needle_rows(rows: list[dict[str, object]]) -> None:
+    """Fail if known-present needle patterns lose the true needle block.
+
+    This protects the mesh shootout from cache-key bugs and selector regressions
+    that make a present literal look absent in a candidate strategy.
+    """
+    needle_patterns = {
+        "needle_exact_ip_regex_escaped",
+        "needle_ip_fixed",
+        "needle_src_ip_fixed",
+    }
+    checked = 0
+    failures: list[str] = []
+
+    for row in rows:
+        if row["pattern_name"] not in needle_patterns:
+            continue
+        if row["variant"] == "full_scan_no_selector":
+            continue
+        checked += 1
+        if row["contains_needle_block"] != "yes" or int(row["selected_blocks"]) == 0:
+            failures.append(
+                f"{row['pattern_name']} variant={row['variant']} "
+                f"block={row['block_lines']} group={row['group_lines']} "
+                f"selected={row['selected_blocks']} contains={row['contains_needle_block']}"
+            )
+
+    if checked == 0:
+        raise RuntimeError("known needle guard did not check any rows")
+    if failures:
+        joined = "\n".join(failures[:20])
+        raise RuntimeError(f"known needle guard failed:\n{joined}")
+
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     fieldnames = [
         "pattern_name",
@@ -882,6 +926,7 @@ def main() -> int:
         parse_csv_ints(args.block_lines),
         parse_csv_ints(args.group_lines),
     )
+    validate_known_needle_rows(rows)
     write_csv(REPO / args.csv, rows)
     write_markdown(REPO / args.output, rows, meta)
     print(f"wrote {REPO / args.output}")

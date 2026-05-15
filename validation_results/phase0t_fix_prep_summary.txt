@@ -1,0 +1,14 @@
+Phase 0t-fix prep summary
+
+Added a narrow correction pass for the Phase 0t mesh shootout.
+
+Changes:
+- Fixed tools/phase0t_mesh_shootout.py cache key contamination by including
+  block first_line, line_count, byte_count, and block_id in cache keys.
+- Added cache clearing between block-size/group-size configurations.
+- Added a known-present needle guard for needle_exact_ip_regex_escaped,
+  needle_ip_fixed, and needle_src_ip_fixed.
+- Added scripts/phase0t_fix_mesh_correctness_once.sh.
+- Added docs/PHASE0T_FIX_MESH_CORRECTNESS.md and docs/CODEX_PHASE0T_FIX_PROMPT.md.
+
+No Cargo validation was run in ChatGPT.

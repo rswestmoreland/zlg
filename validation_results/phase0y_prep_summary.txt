@@ -1,0 +1,11 @@
+Phase 0y prep summary
+
+Added regex hot-path counters, literal prefiltering before Rust regex/PCRE2,
+and a narrow fast path for simple positive lookbehind extraction patterns such
+as (?<=key=")[^"]+.
+
+Added a focused 8192 mesh-bigram benchmark that records regex call counters and
+splits .zlg storage into compressed payload, mesh summary, chunk headers, and
+directory/footer bytes.
+
+No Cargo validation was run in ChatGPT.

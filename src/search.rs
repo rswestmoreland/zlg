@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use memchr::memmem::Finder;
+use memchr::memmem::{self, Finder};
 use pcre2::bytes::RegexBuilder as Pcre2RegexBuilder;
 use regex::bytes::RegexBuilder;
 
@@ -438,6 +438,22 @@ fn hash_window(window_len: u8, bytes: &[u8]) -> u64 {
     hash
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct MatchCounters {
+    pub lines_scanned: u64,
+    pub fixed_calls: u64,
+    pub rust_regex_calls: u64,
+    pub pcre2_calls: u64,
+    pub fast_path_calls: u64,
+    pub prefilter_rejects: u64,
+}
+
+#[derive(Clone, Debug)]
+struct LookbehindUntilDelimiter {
+    prefix: Vec<u8>,
+    delimiter: u8,
+}
+
 #[derive(Debug)]
 pub struct Matcher {
     engine: Engine,
@@ -462,6 +478,18 @@ impl SelectorPlan {
             SelectorPlan::Any(literals) => literals
                 .iter()
                 .any(|literal| summary.may_contain_literal(literal, ignore_case)),
+        }
+    }
+
+    fn line_may_match(&self, line: &[u8], ignore_case: bool) -> bool {
+        match self {
+            SelectorPlan::None => true,
+            SelectorPlan::All(literals) => literals
+                .iter()
+                .all(|literal| fixed_contains(line, literal, ignore_case)),
+            SelectorPlan::Any(literals) => literals
+                .iter()
+                .any(|literal| fixed_contains(line, literal, ignore_case)),
         }
     }
 
@@ -512,7 +540,10 @@ impl SelectorPlan {
 enum Engine {
     Fixed { pattern: Vec<u8> },
     Regex { regex: regex::bytes::Regex },
-    Pcre2 { regex: pcre2::bytes::Regex },
+    Pcre2 {
+        regex: pcre2::bytes::Regex,
+        fast_path: Option<LookbehindUntilDelimiter>,
+    },
 }
 
 impl Matcher {
@@ -528,6 +559,11 @@ impl Matcher {
                 regex: Pcre2RegexBuilder::new()
                     .caseless(options.ignore_case)
                     .build(pattern)?,
+                fast_path: if options.ignore_case {
+                    None
+                } else {
+                    lookbehind_until_delimiter(pattern)
+                },
             }
         } else {
             Engine::Regex {
@@ -562,12 +598,51 @@ impl Matcher {
     }
 
     pub fn line_matches(&self, line: &[u8]) -> Result<bool> {
+        let mut counters = MatchCounters::default();
+        self.line_matches_profiled(line, &mut counters)
+    }
+
+    pub fn line_matches_profiled(
+        &self,
+        line: &[u8],
+        counters: &mut MatchCounters,
+    ) -> Result<bool> {
+        counters.lines_scanned += 1;
+
         match &self.engine {
             Engine::Fixed { pattern } => {
+                counters.fixed_calls += 1;
                 Ok(fixed_contains(line, pattern, self.options.ignore_case))
             }
-            Engine::Regex { regex } => Ok(regex.is_match(line)),
-            Engine::Pcre2 { regex } => Ok(regex.is_match(line)?),
+            Engine::Regex { regex } => {
+                if !self
+                    .selector_plan
+                    .line_may_match(line, self.options.ignore_case)
+                {
+                    counters.prefilter_rejects += 1;
+                    return Ok(false);
+                }
+
+                counters.rust_regex_calls += 1;
+                Ok(regex.is_match(line))
+            }
+            Engine::Pcre2 { regex, fast_path } => {
+                if !self
+                    .selector_plan
+                    .line_may_match(line, self.options.ignore_case)
+                {
+                    counters.prefilter_rejects += 1;
+                    return Ok(false);
+                }
+
+                if let Some(fast_path) = fast_path {
+                    counters.fast_path_calls += 1;
+                    return Ok(fast_path.is_match(line));
+                }
+
+                counters.pcre2_calls += 1;
+                Ok(regex.is_match(line)?)
+            }
         }
     }
 
@@ -580,7 +655,11 @@ impl Matcher {
                 .find_iter(line)
                 .map(|m| m.as_bytes().to_vec())
                 .collect()),
-            Engine::Pcre2 { regex } => {
+            Engine::Pcre2 { regex, fast_path } => {
+                if let Some(fast_path) = fast_path {
+                    return Ok(fast_path.find_all(line));
+                }
+
                 let mut out = Vec::new();
 
                 for item in regex.find_iter(line) {
@@ -591,6 +670,33 @@ impl Matcher {
                 Ok(out)
             }
         }
+    }
+}
+
+impl LookbehindUntilDelimiter {
+    fn is_match(&self, line: &[u8]) -> bool {
+        self.find_ranges(line).next().is_some()
+    }
+
+    fn find_all(&self, line: &[u8]) -> Vec<Vec<u8>> {
+        self.find_ranges(line)
+            .map(|(start, end)| line[start..end].to_vec())
+            .collect()
+    }
+
+    fn find_ranges<'a>(&'a self, line: &'a [u8]) -> impl Iterator<Item = (usize, usize)> + 'a {
+        let prefix_len = self.prefix.len();
+        let delimiter = self.delimiter;
+        memmem::find_iter(line, &self.prefix).filter_map(move |start| {
+            let value_start = start + prefix_len;
+            let rest = &line[value_start..];
+            let end_rel = rest.iter().position(|byte| *byte == delimiter)?;
+            if end_rel == 0 {
+                None
+            } else {
+                Some((value_start, value_start + end_rel))
+            }
+        })
     }
 }
 
@@ -774,6 +880,55 @@ fn selector_from_positive_lookbehind(pattern: &str) -> Option<Vec<u8>> {
     }
 }
 
+fn lookbehind_until_delimiter(pattern: &str) -> Option<LookbehindUntilDelimiter> {
+    let prefix = "(?<=";
+    if !pattern.starts_with(prefix) {
+        return None;
+    }
+
+    let after = prefix.len();
+    let rest = &pattern[after..];
+    let end = rest.find(')')?;
+    let lookbehind = unescape_fixed_literal(&rest[..end])?;
+    let suffix = &rest[end + 1..];
+
+    let delimiter = parse_negated_byte_class_plus(suffix)?;
+    Some(LookbehindUntilDelimiter {
+        prefix: lookbehind,
+        delimiter,
+    })
+}
+
+fn parse_negated_byte_class_plus(value: &str) -> Option<u8> {
+    let bytes = value.as_bytes();
+    if bytes.len() < 5 || bytes[0] != b'[' || bytes[1] != b'^' {
+        return None;
+    }
+
+    let mut idx = 2usize;
+    let delimiter = if bytes[idx] == b'\\' {
+        idx += 1;
+        let escaped = *bytes.get(idx)?;
+        if !is_literal_escape(escaped) {
+            return None;
+        }
+        unescape_literal(escaped)
+    } else {
+        let byte = bytes[idx];
+        if matches!(byte, b'[' | b']' | b'^' | b'-') {
+            return None;
+        }
+        byte
+    };
+
+    idx += 1;
+    if bytes.get(idx) != Some(&b']') || bytes.get(idx + 1) != Some(&b'+') || idx + 2 != bytes.len() {
+        return None;
+    }
+
+    Some(delimiter)
+}
+
 fn unescape_fixed_literal(value: &str) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     let mut escaped = false;
@@ -925,14 +1080,27 @@ fn fixed_contains(line: &[u8], pattern: &[u8], ignore_case: bool) -> bool {
     }
 
     if ignore_case {
-        let mut line = line.to_vec();
-        let mut pattern = pattern.to_vec();
-        line.make_ascii_lowercase();
-        pattern.make_ascii_lowercase();
-        Finder::new(&pattern).find(&line).is_some()
+        ascii_case_insensitive_contains(line, pattern)
     } else {
-        Finder::new(pattern).find(line).is_some()
+        memmem::find(line, pattern).is_some()
     }
+}
+
+fn ascii_case_insensitive_contains(line: &[u8], pattern: &[u8]) -> bool {
+    if pattern.is_empty() {
+        return true;
+    }
+
+    if pattern.len() > line.len() {
+        return false;
+    }
+
+    line.windows(pattern.len()).any(|window| {
+        window
+            .iter()
+            .zip(pattern)
+            .all(|(left, right)| left.eq_ignore_ascii_case(right))
+    })
 }
 
 fn fixed_find_all(line: &[u8], pattern: &[u8], ignore_case: bool) -> Vec<Vec<u8>> {

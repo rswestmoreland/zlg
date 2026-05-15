@@ -1,6 +1,6 @@
 use crate::chunk::{ChunkPolicy, Chunker};
 use crate::format::{DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader, ZlgWriter};
-use crate::search::{GrepOptions, Matcher, SearchSummaryMode};
+use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -258,12 +258,27 @@ struct GrepStats {
     stream_decode: bool,
     crc_checked_chunks: u64,
     stream_early_stopped_chunks: u64,
+    lines_scanned: u64,
+    fixed_calls: u64,
+    rust_regex_calls: u64,
+    pcre2_calls: u64,
+    fast_path_calls: u64,
+    prefilter_rejects: u64,
 }
 
 impl GrepStats {
+    fn add_match_counters(&mut self, counters: MatchCounters) {
+        self.lines_scanned += counters.lines_scanned;
+        self.fixed_calls += counters.fixed_calls;
+        self.rust_regex_calls += counters.rust_regex_calls;
+        self.pcre2_calls += counters.pcre2_calls;
+        self.fast_path_calls += counters.fast_path_calls;
+        self.prefilter_rejects += counters.prefilter_rejects;
+    }
+
     fn to_json(&self) -> String {
         format!(
-            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {},\n  \"stream_decode\": {},\n  \"crc_checked_chunks\": {},\n  \"stream_early_stopped_chunks\": {}\n}}\n",
+            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {},\n  \"stream_decode\": {},\n  \"crc_checked_chunks\": {},\n  \"stream_early_stopped_chunks\": {},\n  \"lines_scanned\": {},\n  \"fixed_calls\": {},\n  \"rust_regex_calls\": {},\n  \"pcre2_calls\": {},\n  \"fast_path_calls\": {},\n  \"prefilter_rejects\": {}\n}}\n",
             self.files,
             self.chunks_total,
             self.chunks_skipped,
@@ -276,7 +291,13 @@ impl GrepStats {
             self.selector_count,
             self.stream_decode,
             self.crc_checked_chunks,
-            self.stream_early_stopped_chunks
+            self.stream_early_stopped_chunks,
+            self.lines_scanned,
+            self.fixed_calls,
+            self.rust_regex_calls,
+            self.pcre2_calls,
+            self.fast_path_calls,
+            self.prefilter_rejects
         )
     }
 }
@@ -404,7 +425,7 @@ fn grep_one(
             .max_count
             .map(|limit| limit.saturating_sub(match_count));
         let chunk_result = if options.stream_decode {
-            let (chunk_matches, outcome) = grep_streaming_chunk(
+            let (chunk_matches, outcome, counters) = grep_streaming_chunk(
                 raw_chunk,
                 path,
                 show_filename,
@@ -413,6 +434,7 @@ fn grep_one(
                 writer,
                 remaining,
             )?;
+            stats.add_match_counters(counters);
             stats.chunks_decoded += 1;
             stats.decoded_bytes += outcome.decoded_bytes;
             if outcome.crc_checked {
@@ -426,7 +448,7 @@ fn grep_one(
             let decoded = raw_chunk.decode()?;
             stats.chunks_decoded += 1;
             stats.decoded_bytes += decoded.data.len() as u64;
-            grep_decoded_chunk(
+            let (chunk_matches, counters) = grep_decoded_chunk(
                 &decoded,
                 path,
                 show_filename,
@@ -434,7 +456,9 @@ fn grep_one(
                 options,
                 writer,
                 remaining,
-            )?
+            )?;
+            stats.add_match_counters(counters);
+            chunk_matches
         };
 
         if chunk_result > 0 {
@@ -474,10 +498,11 @@ fn grep_streaming_chunk(
     options: &GrepOptions,
     writer: &mut dyn Write,
     max_matches: Option<usize>,
-) -> Result<(usize, StreamDecodeOutcome)> {
+) -> Result<(usize, StreamDecodeOutcome, MatchCounters)> {
     let mut matches = 0usize;
+    let mut counters = MatchCounters::default();
     let outcome = raw_chunk.decode_streaming_lines(|line_number, line| {
-        let line_matches = matcher.line_matches(line)?;
+        let line_matches = matcher.line_matches_profiled(line, &mut counters)?;
         let selected = if options.invert_match {
             !line_matches
         } else {
@@ -525,7 +550,7 @@ fn grep_streaming_chunk(
         Ok(true)
     })?;
 
-    Ok((matches, outcome))
+    Ok((matches, outcome, counters))
 }
 
 fn grep_decoded_chunk(
@@ -536,12 +561,13 @@ fn grep_decoded_chunk(
     options: &GrepOptions,
     writer: &mut dyn Write,
     max_matches: Option<usize>,
-) -> Result<usize> {
+) -> Result<(usize, MatchCounters)> {
     let mut matches = 0usize;
+    let mut counters = MatchCounters::default();
     let mut line_number = decoded.header.first_line_number;
 
     for line in split_lines_preserve(&decoded.data) {
-        let line_matches = matcher.line_matches(line)?;
+        let line_matches = matcher.line_matches_profiled(line, &mut counters)?;
         let selected = if options.invert_match {
             !line_matches
         } else {
@@ -589,7 +615,7 @@ fn grep_decoded_chunk(
         line_number += 1;
     }
 
-    Ok(matches)
+    Ok((matches, counters))
 }
 
 fn write_prefix(

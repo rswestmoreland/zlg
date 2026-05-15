@@ -1,0 +1,13 @@
+Phase 0y-fix prep summary
+
+Fixed the benchmark .zlg component accounting parser. The previous parser read
+compressed_len and summary_len from incorrect offsets, causing impossible
+payload values. The parser now uses the actual ZCH1 layout and fails on
+component mismatches.
+
+Added:
+- scripts/phase0y_fix_accounting_once.sh
+- docs/PHASE0Y_FIX_ACCOUNTING.md
+- docs/CODEX_PHASE0Y_FIX_PROMPT.md
+
+No Cargo validation was run in ChatGPT.

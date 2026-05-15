@@ -143,6 +143,21 @@ def repeated(factory, repeats: int, allow_nonzero: bool = False) -> dict[str, ob
 
 
 def parse_zlg_components(path: Path) -> dict[str, int]:
+    """Parse top-level zlg component sizes for benchmark accounting.
+
+    Layout offsets are relative to the start of each ZCH1 record:
+      0  magic [4]
+      4  header_len u16
+      6  flags u16
+      8  chunk_index u64
+      16 first_line_number u64
+      24 line_count u64
+      32 uncompressed_len u64
+      40 compressed_len u64
+      48 summary_len u32
+      52 crc32 u32
+      56 reserved u64
+    """
     data = path.read_bytes()
     offset = 32
     out = {
@@ -153,26 +168,72 @@ def parse_zlg_components(path: Path) -> dict[str, int]:
         "zlg_compressed_payload_bytes": 0,
         "zlg_directory_footer_bytes": 0,
     }
+
     while offset + 4 <= len(data):
         magic = data[offset:offset + 4]
         if magic == b"ZCH1":
+            if offset + 64 > len(data):
+                raise ValueError(f"truncated zlg chunk header at offset {offset}")
             header_len = struct.unpack_from("<H", data, offset + 4)[0]
-            compressed_len = struct.unpack_from("<Q", data, offset + 36)[0]
-            summary_len = struct.unpack_from("<I", data, offset + 44)[0]
+            if header_len != 64:
+                raise ValueError(f"unexpected zlg chunk header length {header_len} at offset {offset}")
+
+            compressed_len = struct.unpack_from("<Q", data, offset + 40)[0]
+            summary_len = struct.unpack_from("<I", data, offset + 48)[0]
+            record_len = header_len + summary_len + compressed_len
+            if record_len <= header_len:
+                raise ValueError(f"invalid zlg chunk record length {record_len} at offset {offset}")
+            if offset + record_len > len(data):
+                raise ValueError(
+                    f"zlg chunk record exceeds file size at offset {offset}: "
+                    f"record_len={record_len}, total={len(data)}"
+                )
+
             out["zlg_chunk_count"] += 1
             out["zlg_chunk_header_bytes"] += header_len
             out["zlg_summary_bytes"] += summary_len
             out["zlg_compressed_payload_bytes"] += compressed_len
-            offset += header_len + summary_len + compressed_len
+            offset += record_len
         elif magic == b"ZDR1":
+            if offset + 16 > len(data):
+                raise ValueError(f"truncated zlg directory at offset {offset}")
             entry_len = struct.unpack_from("<I", data, offset + 4)[0]
             count = struct.unpack_from("<Q", data, offset + 8)[0]
             directory_len = 4 + 4 + 8 + entry_len * count
             footer_len = 48
-            out["zlg_directory_footer_bytes"] = directory_len + footer_len
+            component_len = directory_len + footer_len
+            if offset + component_len > len(data):
+                raise ValueError(
+                    f"zlg directory/footer exceeds file size at offset {offset}: "
+                    f"component_len={component_len}, total={len(data)}"
+                )
+            out["zlg_directory_footer_bytes"] = component_len
+            offset += component_len
             break
         else:
-            break
+            raise ValueError(f"unexpected zlg record magic {magic!r} at offset {offset}")
+
+    component_sum = (
+        out["zlg_chunk_header_bytes"]
+        + out["zlg_summary_bytes"]
+        + out["zlg_compressed_payload_bytes"]
+        + out["zlg_directory_footer_bytes"]
+        + 32
+    )
+    if component_sum != out["zlg_total_bytes"]:
+        raise ValueError(
+            f"zlg component accounting mismatch: components={component_sum}, "
+            f"total={out['zlg_total_bytes']}"
+        )
+    for key in [
+        "zlg_chunk_header_bytes",
+        "zlg_summary_bytes",
+        "zlg_compressed_payload_bytes",
+        "zlg_directory_footer_bytes",
+    ]:
+        if out[key] > out["zlg_total_bytes"]:
+            raise ValueError(f"zlg component {key} exceeds total file size")
+
     return out
 
 

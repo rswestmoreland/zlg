@@ -28,6 +28,14 @@ impl ChunkPolicy {
                 byte_cap: None,
             } => 16,
             ChunkPolicy::FixedLines {
+                lines: 8192,
+                byte_cap: None,
+            } => 17,
+            ChunkPolicy::FixedLines {
+                lines: 16_384,
+                byte_cap: None,
+            } => 18,
+            ChunkPolicy::FixedLines {
                 lines: 65_536,
                 byte_cap: None,
             } => 1,

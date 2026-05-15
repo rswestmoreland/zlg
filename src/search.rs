@@ -538,8 +538,12 @@ impl SelectorPlan {
 
 #[derive(Debug)]
 enum Engine {
-    Fixed { pattern: Vec<u8> },
-    Regex { regex: regex::bytes::Regex },
+    Fixed {
+        pattern: Vec<u8>,
+    },
+    Regex {
+        regex: regex::bytes::Regex,
+    },
     Pcre2 {
         regex: pcre2::bytes::Regex,
         fast_path: Option<LookbehindUntilDelimiter>,
@@ -597,16 +601,7 @@ impl Matcher {
         self.selector_plan.count()
     }
 
-    pub fn line_matches(&self, line: &[u8]) -> Result<bool> {
-        let mut counters = MatchCounters::default();
-        self.line_matches_profiled(line, &mut counters)
-    }
-
-    pub fn line_matches_profiled(
-        &self,
-        line: &[u8],
-        counters: &mut MatchCounters,
-    ) -> Result<bool> {
+    pub fn line_matches_profiled(&self, line: &[u8], counters: &mut MatchCounters) -> Result<bool> {
         counters.lines_scanned += 1;
 
         match &self.engine {
@@ -922,7 +917,8 @@ fn parse_negated_byte_class_plus(value: &str) -> Option<u8> {
     };
 
     idx += 1;
-    if bytes.get(idx) != Some(&b']') || bytes.get(idx + 1) != Some(&b'+') || idx + 2 != bytes.len() {
+    if bytes.get(idx) != Some(&b']') || bytes.get(idx + 1) != Some(&b'+') || idx + 2 != bytes.len()
+    {
         return None;
     }
 

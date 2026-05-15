@@ -55,7 +55,7 @@ pub enum SearchSummaryMode {
 const PATH_WINDOW_MAGIC: &[u8; 4] = b"ZPW1";
 const PATH_WINDOW_VERSION: u16 = 1;
 const BIGRAM_MESH_MAGIC: &[u8; 4] = b"ZBM1";
-const BIGRAM_MESH_VERSION: u16 = 1;
+const BIGRAM_MESH_VERSION: u16 = 2;
 const PATH_WINDOW_MIN: usize = 6;
 const PATH_WINDOW_MID: usize = 8;
 const PATH_WINDOW_MAX: usize = 12;
@@ -166,13 +166,21 @@ impl SearchSummary {
         }
 
         if let Some(mesh) = &self.mesh_bigrams {
-            let mut out = Vec::with_capacity(12 + mesh.edges.len() * 4);
+            let mut out = Vec::with_capacity(12 + mesh.edges.len() * 3);
             out.extend_from_slice(BIGRAM_MESH_MAGIC);
             out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
             out.extend_from_slice(&0u16.to_le_bytes());
             out.extend_from_slice(&(mesh.edges.len() as u32).to_le_bytes());
-            for edge in &mesh.edges {
-                out.extend_from_slice(&edge.to_le_bytes());
+
+            let mut previous = 0u32;
+            for (index, edge) in mesh.edges.iter().copied().enumerate() {
+                let delta = if index == 0 {
+                    edge
+                } else {
+                    edge.saturating_sub(previous)
+                };
+                write_varint_u32(delta, &mut out);
+                previous = edge;
             }
             return out;
         }
@@ -233,28 +241,62 @@ impl SearchSummary {
 
         if bytes.len() >= 12 && &bytes[..4] == BIGRAM_MESH_MAGIC {
             let version = u16::from_le_bytes([bytes[4], bytes[5]]);
-            if version != BIGRAM_MESH_VERSION {
+            if version != 1 && version != BIGRAM_MESH_VERSION {
                 return Err(anyhow!("unsupported bigram mesh summary version {version}"));
             }
 
             let count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
-            let expected = 12 + count * 4;
-            if bytes.len() != expected {
-                return Err(anyhow!(
-                    "invalid bigram mesh summary length: expected {}, got {}",
-                    expected,
-                    bytes.len()
-                ));
+            let mut edges = Vec::with_capacity(count);
+
+            if version == 1 {
+                let expected = 12 + count * 4;
+                if bytes.len() != expected {
+                    return Err(anyhow!(
+                        "invalid bigram mesh summary length: expected {}, got {}",
+                        expected,
+                        bytes.len()
+                    ));
+                }
+
+                let mut offset = 12;
+                for _ in 0..count {
+                    let mut raw = [0u8; 4];
+                    raw.copy_from_slice(&bytes[offset..offset + 4]);
+                    edges.push(u32::from_le_bytes(raw) & 0x00ff_ffff);
+                    offset += 4;
+                }
+            } else {
+                let mut offset = 12;
+                let mut previous = 0u32;
+                for index in 0..count {
+                    let delta = read_varint_u32(bytes, &mut offset)?;
+                    let edge = if index == 0 {
+                        delta
+                    } else {
+                        previous.checked_add(delta).ok_or_else(|| {
+                            anyhow!("bigram mesh edge delta overflow at index {index}")
+                        })?
+                    };
+                    if edge > 0x00ff_ffff {
+                        return Err(anyhow!(
+                            "bigram mesh edge out of range at index {}: {}",
+                            index,
+                            edge
+                        ));
+                    }
+                    edges.push(edge);
+                    previous = edge;
+                }
+
+                if offset != bytes.len() {
+                    return Err(anyhow!(
+                        "invalid bigram mesh summary length: consumed {}, got {}",
+                        offset,
+                        bytes.len()
+                    ));
+                }
             }
 
-            let mut edges = Vec::with_capacity(count);
-            let mut offset = 12;
-            for _ in 0..count {
-                let mut raw = [0u8; 4];
-                raw.copy_from_slice(&bytes[offset..offset + 4]);
-                edges.push(u32::from_le_bytes(raw) & 0x00ff_ffff);
-                offset += 4;
-            }
             edges.sort_unstable();
             edges.dedup();
 
@@ -405,14 +447,55 @@ fn collect_bigram_edges(bytes: &[u8], edges: &mut Vec<u32>) {
         return;
     }
 
-    for edge in bytes.windows(3) {
-        edges.push(pack_bigram_edge(edge));
+    for index in 0..bytes.len() - 2 {
+        edges.push(pack_bigram_edge_bytes(
+            bytes[index],
+            bytes[index + 1],
+            bytes[index + 2],
+        ));
     }
 }
 
 fn pack_bigram_edge(edge: &[u8]) -> u32 {
     debug_assert!(edge.len() == 3);
-    ((edge[0] as u32) << 16) | ((edge[1] as u32) << 8) | edge[2] as u32
+    pack_bigram_edge_bytes(edge[0], edge[1], edge[2])
+}
+
+fn pack_bigram_edge_bytes(first: u8, second: u8, third: u8) -> u32 {
+    ((first as u32) << 16) | ((second as u32) << 8) | third as u32
+}
+
+fn write_varint_u32(mut value: u32, out: &mut Vec<u8>) {
+    while value >= 0x80 {
+        out.push((value as u8 & 0x7f) | 0x80);
+        value >>= 7;
+    }
+    out.push(value as u8);
+}
+
+fn read_varint_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
+    let mut value = 0u32;
+    let mut shift = 0u32;
+
+    loop {
+        if *offset >= bytes.len() {
+            return Err(anyhow!("truncated bigram mesh varint"));
+        }
+
+        let byte = bytes[*offset];
+        *offset += 1;
+
+        value |= ((byte & 0x7f) as u32) << shift;
+
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+
+        shift += 7;
+        if shift >= 35 {
+            return Err(anyhow!("bigram mesh varint is too long"));
+        }
+    }
 }
 
 fn collect_window_hashes(bytes: &[u8], hashes: &mut Vec<u64>) {

@@ -1,0 +1,14 @@
+Phase 0q prep summary
+
+Added:
+- positive lookbehind selector fix in tools/phase0m_postings_probe.py
+- tools/phase0q_needle_corpus_probe.py
+- scripts/phase0q_selector_needle_once.sh
+- docs/PHASE0Q_REGEX_SELECTOR_AND_NEEDLE_CORPUS.md
+- docs/CODEX_PHASE0Q_PROMPT.md
+
+The needle corpus probe generates deterministic sample data where one exact IP
+appears once around 80 percent into the log volume. The generated corpus is not
+committed; only compact CSV/Markdown results are saved.
+
+No Cargo validation was run in ChatGPT.

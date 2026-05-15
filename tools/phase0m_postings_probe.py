@@ -104,6 +104,11 @@ def noncapturing_alt(pattern: str) -> list[bytes] | None:
 
 
 def positive_lookbehind(pattern: str) -> bytes | None:
+    """Return a fixed literal from a positive lookbehind when safe.
+
+    This accepts escaped literal characters such as \" so patterns like
+    (?<=key=\")[^\"]+ can use key=" as a selector hint.
+    """
     prefix = "(?<="
     start = pattern.find(prefix)
     if start < 0:
@@ -112,10 +117,39 @@ def positive_lookbehind(pattern: str) -> bytes | None:
     end = pattern.find(")", after)
     if end < 0:
         return None
-    literal = pattern[after:end]
-    if literal and not any(ch in literal for ch in "[](){}*+?|^$.\\"):
-        return literal.encode("utf-8")
+
+    body = pattern[after:end]
+    literal = unescape_fixed_literal(body)
+    if literal and len(literal) >= 2:
+        return literal
     return None
+
+
+def unescape_fixed_literal(value: str) -> bytes | None:
+    out = bytearray()
+    escaped = False
+    meta = set("[](){}*+?|^$.")
+
+    for char in value:
+        if escaped:
+            if char in "\\\"'/. _-=:":
+                out.extend(char.encode("utf-8"))
+                escaped = False
+                continue
+            return None
+
+        if char == "\\":
+            escaped = True
+            continue
+
+        if char in meta:
+            return None
+
+        out.extend(char.encode("utf-8"))
+
+    if escaped:
+        return None
+    return bytes(out)
 
 
 def selector(pattern: str, engine: str) -> tuple[str, list[bytes]]:

@@ -29,6 +29,7 @@ pub enum Commands {
 pub enum ChunkPolicyArg {
     FixedLines512,
     FixedLines1024,
+    FixedLines2048,
     FixedLines64k,
     ProgressiveLines,
     Byte1m,
@@ -52,6 +53,10 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
             },
             ChunkPolicyArg::FixedLines1024 => ChunkPolicy::FixedLines {
                 lines: 1024,
+                byte_cap: None,
+            },
+            ChunkPolicyArg::FixedLines2048 => ChunkPolicy::FixedLines {
+                lines: 2048,
                 byte_cap: None,
             },
             ChunkPolicyArg::FixedLines64k => ChunkPolicy::FixedLines {
@@ -98,6 +103,7 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
 pub enum SummaryModeArg {
     Bitmap,
     PathWindow,
+    MeshBigram,
     None,
 }
 
@@ -106,6 +112,7 @@ impl From<SummaryModeArg> for SearchSummaryMode {
         match value {
             SummaryModeArg::Bitmap => SearchSummaryMode::Bitmap,
             SummaryModeArg::PathWindow => SearchSummaryMode::PathWindow,
+            SummaryModeArg::MeshBigram => SearchSummaryMode::MeshBigram,
             SummaryModeArg::None => SearchSummaryMode::None,
         }
     }

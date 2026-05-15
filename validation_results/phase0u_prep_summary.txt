@@ -1,0 +1,19 @@
+Phase 0u prep summary
+
+Added focused sorted bigram mesh runtime/storage validation.
+
+Source changes:
+- SearchSummaryMode::MeshBigram
+- --summary-mode mesh-bigram
+- compact ZBM1 sorted bigram-edge summary
+- fixed-lines2048 chunk policy
+
+New tooling/docs:
+- tools/phase0u_mesh_runtime_probe.py
+- scripts/phase0u_mesh_runtime_once.sh
+- docs/PHASE0U_SORTED_BIGRAM_MESH_RUNTIME.md
+- docs/CODEX_PHASE0U_PROMPT.md
+
+This phase drops trigram and other losing candidates and focuses on storage
+and runtime performance for the compact bigram mesh strategy. No Cargo
+validation was run in ChatGPT.

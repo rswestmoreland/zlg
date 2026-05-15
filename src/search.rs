@@ -24,6 +24,7 @@ pub struct GrepOptions {
 pub struct SearchSummary {
     disabled: bool,
     path_windows: Option<PathWindowSummary>,
+    mesh_bigrams: Option<BigramMeshSummary>,
     byte_class: [u8; BYTE_CLASS_LEN],
     bigram: [u8; BIGRAM_LEN],
     lower_byte_class: [u8; BYTE_CLASS_LEN],
@@ -35,15 +36,23 @@ struct PathWindowSummary {
     hashes: Vec<u64>,
 }
 
+#[derive(Clone, Debug)]
+struct BigramMeshSummary {
+    edges: Vec<u32>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchSummaryMode {
     Bitmap,
     PathWindow,
+    MeshBigram,
     None,
 }
 
 const PATH_WINDOW_MAGIC: &[u8; 4] = b"ZPW1";
 const PATH_WINDOW_VERSION: u16 = 1;
+const BIGRAM_MESH_MAGIC: &[u8; 4] = b"ZBM1";
+const BIGRAM_MESH_VERSION: u16 = 1;
 const PATH_WINDOW_MIN: usize = 6;
 const PATH_WINDOW_MID: usize = 8;
 const PATH_WINDOW_MAX: usize = 12;
@@ -55,6 +64,7 @@ impl SearchSummary {
         Self {
             disabled: true,
             path_windows: None,
+            mesh_bigrams: None,
             byte_class: [0u8; BYTE_CLASS_LEN],
             bigram: [0u8; BIGRAM_LEN],
             lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -66,6 +76,7 @@ impl SearchSummary {
         let mut summary = Self {
             disabled: false,
             path_windows: None,
+            mesh_bigrams: None,
             byte_class: [0u8; BYTE_CLASS_LEN],
             bigram: [0u8; BIGRAM_LEN],
             lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -105,6 +116,31 @@ impl SearchSummary {
         Self {
             disabled: false,
             path_windows: Some(PathWindowSummary { hashes }),
+            mesh_bigrams: None,
+            byte_class: [0u8; BYTE_CLASS_LEN],
+            bigram: [0u8; BIGRAM_LEN],
+            lower_byte_class: [0u8; BYTE_CLASS_LEN],
+            lower_bigram: [0u8; BIGRAM_LEN],
+        }
+    }
+
+    pub fn from_bigram_mesh(bytes: &[u8]) -> Self {
+        let mut edges = Vec::new();
+        collect_bigram_edges(bytes, &mut edges);
+
+        let mut lower = bytes.to_vec();
+        lower.make_ascii_lowercase();
+        if lower != bytes {
+            collect_bigram_edges(&lower, &mut edges);
+        }
+
+        edges.sort_unstable();
+        edges.dedup();
+
+        Self {
+            disabled: false,
+            path_windows: None,
+            mesh_bigrams: Some(BigramMeshSummary { edges }),
             byte_class: [0u8; BYTE_CLASS_LEN],
             bigram: [0u8; BIGRAM_LEN],
             lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -121,6 +157,18 @@ impl SearchSummary {
             out.extend_from_slice(&(path_windows.hashes.len() as u32).to_le_bytes());
             for hash in &path_windows.hashes {
                 out.extend_from_slice(&hash.to_le_bytes());
+            }
+            return out;
+        }
+
+        if let Some(mesh) = &self.mesh_bigrams {
+            let mut out = Vec::with_capacity(12 + mesh.edges.len() * 4);
+            out.extend_from_slice(BIGRAM_MESH_MAGIC);
+            out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&(mesh.edges.len() as u32).to_le_bytes());
+            for edge in &mesh.edges {
+                out.extend_from_slice(&edge.to_le_bytes());
             }
             return out;
         }
@@ -171,6 +219,45 @@ impl SearchSummary {
             return Ok(Self {
                 disabled: false,
                 path_windows: Some(PathWindowSummary { hashes }),
+                mesh_bigrams: None,
+                byte_class: [0u8; BYTE_CLASS_LEN],
+                bigram: [0u8; BIGRAM_LEN],
+                lower_byte_class: [0u8; BYTE_CLASS_LEN],
+                lower_bigram: [0u8; BIGRAM_LEN],
+            });
+        }
+
+        if bytes.len() >= 12 && &bytes[..4] == BIGRAM_MESH_MAGIC {
+            let version = u16::from_le_bytes([bytes[4], bytes[5]]);
+            if version != BIGRAM_MESH_VERSION {
+                return Err(anyhow!("unsupported bigram mesh summary version {version}"));
+            }
+
+            let count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+            let expected = 12 + count * 4;
+            if bytes.len() != expected {
+                return Err(anyhow!(
+                    "invalid bigram mesh summary length: expected {}, got {}",
+                    expected,
+                    bytes.len()
+                ));
+            }
+
+            let mut edges = Vec::with_capacity(count);
+            let mut offset = 12;
+            for _ in 0..count {
+                let mut raw = [0u8; 4];
+                raw.copy_from_slice(&bytes[offset..offset + 4]);
+                edges.push(u32::from_le_bytes(raw) & 0x00ff_ffff);
+                offset += 4;
+            }
+            edges.sort_unstable();
+            edges.dedup();
+
+            return Ok(Self {
+                disabled: false,
+                path_windows: None,
+                mesh_bigrams: Some(BigramMeshSummary { edges }),
                 byte_class: [0u8; BYTE_CLASS_LEN],
                 bigram: [0u8; BIGRAM_LEN],
                 lower_byte_class: [0u8; BYTE_CLASS_LEN],
@@ -215,6 +302,7 @@ impl SearchSummary {
         Ok(Self {
             disabled: false,
             path_windows: None,
+            mesh_bigrams: None,
             byte_class,
             bigram,
             lower_byte_class,
@@ -242,6 +330,10 @@ impl SearchSummary {
 
         if let Some(path_windows) = &self.path_windows {
             return path_windows.may_contain_literal(literal);
+        }
+
+        if let Some(mesh) = &self.mesh_bigrams {
+            return mesh.may_contain_literal(literal);
         }
 
         let byte_class = if ignore_case {
@@ -286,6 +378,33 @@ impl PathWindowSummary {
                 .is_ok()
         })
     }
+}
+
+impl BigramMeshSummary {
+    fn may_contain_literal(&self, literal: &[u8]) -> bool {
+        if literal.len() < 3 {
+            return true;
+        }
+
+        literal
+            .windows(3)
+            .all(|edge| self.edges.binary_search(&pack_bigram_edge(edge)).is_ok())
+    }
+}
+
+fn collect_bigram_edges(bytes: &[u8], edges: &mut Vec<u32>) {
+    if bytes.len() < 3 {
+        return;
+    }
+
+    for edge in bytes.windows(3) {
+        edges.push(pack_bigram_edge(edge));
+    }
+}
+
+fn pack_bigram_edge(edge: &[u8]) -> u32 {
+    debug_assert!(edge.len() == 3);
+    ((edge[0] as u32) << 16) | ((edge[1] as u32) << 8) | edge[2] as u32
 }
 
 fn collect_window_hashes(bytes: &[u8], hashes: &mut Vec<u64>) {

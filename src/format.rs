@@ -52,6 +52,13 @@ pub struct DecodedChunk {
     pub data: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct StreamDecodeOutcome {
+    pub decoded_bytes: u64,
+    pub crc_checked: bool,
+    pub stopped_early: bool,
+}
+
 impl RawChunk {
     pub fn decode(self) -> Result<DecodedChunk> {
         let data = zstd::stream::decode_all(Cursor::new(&self.compressed))
@@ -79,6 +86,92 @@ impl RawChunk {
         Ok(DecodedChunk {
             header: self.header,
             data,
+        })
+    }
+
+    pub fn decode_streaming_lines<F>(self, mut on_line: F) -> Result<StreamDecodeOutcome>
+    where
+        F: FnMut(u64, &[u8]) -> Result<bool>,
+    {
+        let header = self.header;
+        let mut decoder = zstd::stream::Decoder::new(Cursor::new(self.compressed))
+            .context("failed to create zstd streaming decoder")?;
+        let mut buffer = [0u8; 64 * 1024];
+        let mut line = Vec::new();
+        let mut line_number = header.first_line_number;
+        let mut decoded_bytes = 0u64;
+        let mut hasher = Hasher::new();
+
+        loop {
+            let read = decoder
+                .read(&mut buffer)
+                .context("failed to stream decode zstd chunk")?;
+            if read == 0 {
+                break;
+            }
+
+            decoded_bytes += read as u64;
+            hasher.update(&buffer[..read]);
+
+            let mut start = 0usize;
+            let mut stopped_early = false;
+            for idx in 0..read {
+                if buffer[idx] == b'\n' {
+                    line.extend_from_slice(&buffer[start..=idx]);
+                    if !on_line(line_number, &line)? {
+                        stopped_early = true;
+                        break;
+                    }
+                    line.clear();
+                    line_number += 1;
+                    start = idx + 1;
+                }
+            }
+
+            if stopped_early {
+                return Ok(StreamDecodeOutcome {
+                    decoded_bytes,
+                    crc_checked: false,
+                    stopped_early: true,
+                });
+            }
+
+            if start < read {
+                line.extend_from_slice(&buffer[start..read]);
+            }
+        }
+
+        if !line.is_empty() && !on_line(line_number, &line)? {
+            return Ok(StreamDecodeOutcome {
+                decoded_bytes,
+                crc_checked: false,
+                stopped_early: true,
+            });
+        }
+
+        if decoded_bytes != header.uncompressed_len {
+            return Err(anyhow!(
+                "chunk {} decoded length mismatch: expected {}, got {}",
+                header.chunk_index,
+                header.uncompressed_len,
+                decoded_bytes
+            ));
+        }
+
+        let crc = hasher.finalize();
+        if crc != header.crc32 {
+            return Err(anyhow!(
+                "chunk {} crc mismatch: expected {:#010x}, got {:#010x}",
+                header.chunk_index,
+                header.crc32,
+                crc
+            ));
+        }
+
+        Ok(StreamDecodeOutcome {
+            decoded_bytes,
+            crc_checked: true,
+            stopped_early: false,
         })
     }
 }

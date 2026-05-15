@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use memchr::memmem::Finder;
+use pcre2::bytes::RegexBuilder as Pcre2RegexBuilder;
 use regex::bytes::RegexBuilder;
 
 const SUMMARY_MAGIC: &[u8; 4] = b"ZSM1";
@@ -18,6 +19,8 @@ pub struct GrepOptions {
     pub count: bool,
     pub files_with_matches: bool,
     pub invert_match: bool,
+    pub max_count: Option<usize>,
+    pub stream_decode: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -509,7 +512,7 @@ impl SelectorPlan {
 enum Engine {
     Fixed { pattern: Vec<u8> },
     Regex { regex: regex::bytes::Regex },
-    Fancy { regex: fancy_regex::Regex },
+    Pcre2 { regex: pcre2::bytes::Regex },
 }
 
 impl Matcher {
@@ -521,13 +524,10 @@ impl Matcher {
                 pattern: pattern.as_bytes().to_vec(),
             }
         } else if options.perl_regexp {
-            let pattern = if options.ignore_case {
-                format!("(?i:{pattern})")
-            } else {
-                pattern.to_string()
-            };
-            Engine::Fancy {
-                regex: fancy_regex::Regex::new(&pattern)?,
+            Engine::Pcre2 {
+                regex: Pcre2RegexBuilder::new()
+                    .caseless(options.ignore_case)
+                    .build(pattern)?,
             }
         } else {
             Engine::Regex {
@@ -567,10 +567,7 @@ impl Matcher {
                 Ok(fixed_contains(line, pattern, self.options.ignore_case))
             }
             Engine::Regex { regex } => Ok(regex.is_match(line)),
-            Engine::Fancy { regex } => {
-                let line = String::from_utf8_lossy(line);
-                Ok(regex.is_match(&line)?)
-            }
+            Engine::Pcre2 { regex } => Ok(regex.is_match(line)?),
         }
     }
 
@@ -583,13 +580,12 @@ impl Matcher {
                 .find_iter(line)
                 .map(|m| m.as_bytes().to_vec())
                 .collect()),
-            Engine::Fancy { regex } => {
-                let line = String::from_utf8_lossy(line);
+            Engine::Pcre2 { regex } => {
                 let mut out = Vec::new();
 
-                for item in regex.find_iter(&line) {
+                for item in regex.find_iter(line) {
                     let item = item?;
-                    out.push(item.as_str().as_bytes().to_vec());
+                    out.push(item.as_bytes().to_vec());
                 }
 
                 Ok(out)

@@ -10,7 +10,7 @@ repository = "https://example.invalid/zlg"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 crc32fast = "1.4"
-fancy-regex = "0.14"
+pcre2 = "0.2.11"
 memchr = "2.7"
 regex = "1.11"
 thiserror = "2.0"

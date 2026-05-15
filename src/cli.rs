@@ -1,5 +1,5 @@
 use crate::chunk::{ChunkPolicy, Chunker};
-use crate::format::{DecodedChunk, ZlgReader, ZlgWriter};
+use crate::format::{DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader, ZlgWriter};
 use crate::search::{GrepOptions, Matcher, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
@@ -196,6 +196,15 @@ pub struct GrepArgs {
 
     #[arg(long)]
     pub stats_json: Option<PathBuf>,
+
+    #[arg(short = 'm', long)]
+    pub max_count: Option<usize>,
+
+    #[arg(long)]
+    pub head: Option<usize>,
+
+    #[arg(long)]
+    pub stream_decode: bool,
 }
 
 pub fn run_compress(args: CompressArgs) -> Result<()> {
@@ -246,12 +255,15 @@ struct GrepStats {
     selector_kind: &'static str,
     selector_len: usize,
     selector_count: usize,
+    stream_decode: bool,
+    crc_checked_chunks: u64,
+    stream_early_stopped_chunks: u64,
 }
 
 impl GrepStats {
     fn to_json(&self) -> String {
         format!(
-            "{{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {}\n}}\n",
+            "{\n  \"files\": {},\n  \"chunks_total\": {},\n  \"chunks_skipped\": {},\n  \"candidate_chunks\": {},\n  \"chunks_decoded\": {},\n  \"decoded_bytes\": {},\n  \"matching_lines\": {},\n  \"selector_kind\": \"{}\",\n  \"selector_len\": {},\n  \"selector_count\": {},\n  \"stream_decode\": {},\n  \"crc_checked_chunks\": {},\n  \"stream_early_stopped_chunks\": {}\n}}\n",
             self.files,
             self.chunks_total,
             self.chunks_skipped,
@@ -261,7 +273,10 @@ impl GrepStats {
             self.matching_lines,
             self.selector_kind,
             self.selector_len,
-            self.selector_count
+            self.selector_count,
+            self.stream_decode,
+            self.crc_checked_chunks,
+            self.stream_early_stopped_chunks
         )
     }
 }
@@ -280,6 +295,8 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
         count: args.count,
         files_with_matches: args.files_with_matches,
         invert_match: args.invert_match,
+        max_count: merge_match_limit(args.max_count, args.head)?,
+        stream_decode: args.stream_decode,
     };
 
     let matcher = Matcher::new(&args.pattern, options.clone())?;
@@ -288,6 +305,7 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
         selector_kind: matcher.selector_kind(),
         selector_len: matcher.selector_len(),
         selector_count: matcher.selector_count(),
+        stream_decode: options.stream_decode,
         ..GrepStats::default()
     };
 
@@ -333,6 +351,14 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
     grep_exit(total_matches)
 }
 
+fn merge_match_limit(max_count: Option<usize>, head: Option<usize>) -> Result<Option<usize>> {
+    match (max_count, head) {
+        (Some(_), Some(_)) => Err(anyhow!("cannot combine --max-count and --head")),
+        (Some(value), None) | (None, Some(value)) => Ok(Some(value)),
+        (None, None) => Ok(None),
+    }
+}
+
 fn write_grep_stats(path: Option<&PathBuf>, stats: &GrepStats) -> Result<()> {
     if let Some(path) = path {
         std::fs::write(path, stats.to_json())
@@ -369,19 +395,54 @@ fn grep_one(
             continue;
         }
 
+        if options.max_count.is_some_and(|limit| match_count >= limit) {
+            break;
+        }
+
         stats.candidate_chunks += 1;
-        let decoded = raw_chunk.decode()?;
-        stats.chunks_decoded += 1;
-        stats.decoded_bytes += decoded.data.len() as u64;
-        let chunk_matches =
-            grep_decoded_chunk(&decoded, path, show_filename, matcher, options, writer)?;
+        let remaining = options.max_count.map(|limit| limit.saturating_sub(match_count));
+        let chunk_result = if options.stream_decode {
+            let (chunk_matches, outcome) = grep_streaming_chunk(
+                raw_chunk,
+                path,
+                show_filename,
+                matcher,
+                options,
+                writer,
+                remaining,
+            )?;
+            stats.chunks_decoded += 1;
+            stats.decoded_bytes += outcome.decoded_bytes;
+            if outcome.crc_checked {
+                stats.crc_checked_chunks += 1;
+            }
+            if outcome.stopped_early {
+                stats.stream_early_stopped_chunks += 1;
+            }
+            chunk_matches
+        } else {
+            let decoded = raw_chunk.decode()?;
+            stats.chunks_decoded += 1;
+            stats.decoded_bytes += decoded.data.len() as u64;
+            grep_decoded_chunk(
+                &decoded,
+                path,
+                show_filename,
+                matcher,
+                options,
+                writer,
+                remaining,
+            )?
+        };
 
-        if chunk_matches > 0 {
+        if chunk_result > 0 {
             file_has_match = true;
-            match_count += chunk_matches;
-            stats.matching_lines += chunk_matches as u64;
+            match_count += chunk_result;
+            stats.matching_lines += chunk_result as u64;
 
-            if options.files_with_matches {
+            if options.files_with_matches
+                || options.max_count.is_some_and(|limit| match_count >= limit)
+            {
                 break;
             }
         }
@@ -403,18 +464,17 @@ fn grep_one(
     Ok(match_count)
 }
 
-fn grep_decoded_chunk(
-    decoded: &DecodedChunk,
+fn grep_streaming_chunk(
+    raw_chunk: RawChunk,
     path: Option<&PathBuf>,
     show_filename: bool,
     matcher: &Matcher,
     options: &GrepOptions,
     writer: &mut dyn Write,
-) -> Result<usize> {
+    max_matches: Option<usize>,
+) -> Result<(usize, StreamDecodeOutcome)> {
     let mut matches = 0usize;
-    let mut line_number = decoded.header.first_line_number;
-
-    for line in split_lines_preserve(&decoded.data) {
+    let outcome = raw_chunk.decode_streaming_lines(|line_number, line| {
         let line_matches = matcher.line_matches(line)?;
         let selected = if options.invert_match {
             !line_matches
@@ -423,6 +483,10 @@ fn grep_decoded_chunk(
         };
 
         if selected {
+            if max_matches.is_some_and(|limit| matches >= limit) {
+                return Ok(false);
+            }
+
             matches += 1;
 
             if !options.count && !options.files_with_matches {
@@ -449,6 +513,74 @@ fn grep_decoded_chunk(
                     writer.write_all(trim_trailing_newline(line))?;
                     writer.write_all(b"\n")?;
                 }
+            }
+
+            if options.files_with_matches || max_matches.is_some_and(|limit| matches >= limit) {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    })?;
+
+    Ok((matches, outcome))
+}
+
+fn grep_decoded_chunk(
+    decoded: &DecodedChunk,
+    path: Option<&PathBuf>,
+    show_filename: bool,
+    matcher: &Matcher,
+    options: &GrepOptions,
+    writer: &mut dyn Write,
+    max_matches: Option<usize>,
+) -> Result<usize> {
+    let mut matches = 0usize;
+    let mut line_number = decoded.header.first_line_number;
+
+    for line in split_lines_preserve(&decoded.data) {
+        let line_matches = matcher.line_matches(line)?;
+        let selected = if options.invert_match {
+            !line_matches
+        } else {
+            line_matches
+        };
+
+        if selected {
+            if max_matches.is_some_and(|limit| matches >= limit) {
+                break;
+            }
+
+            matches += 1;
+
+            if !options.count && !options.files_with_matches {
+                if options.only_matching && !options.invert_match {
+                    for item in matcher.find_matches(line)? {
+                        write_prefix(
+                            writer,
+                            path,
+                            show_filename,
+                            options.line_number,
+                            line_number,
+                        )?;
+                        writer.write_all(&item)?;
+                        writer.write_all(b"\n")?;
+                    }
+                } else {
+                    write_prefix(
+                        writer,
+                        path,
+                        show_filename,
+                        options.line_number,
+                        line_number,
+                    )?;
+                    writer.write_all(trim_trailing_newline(line))?;
+                    writer.write_all(b"\n")?;
+                }
+            }
+
+            if max_matches.is_some_and(|limit| matches >= limit) {
+                break;
             }
         }
 

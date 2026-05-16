@@ -279,7 +279,6 @@ impl BuildStats {
             self.unique_edges
         )
     }
-
 }
 
 pub struct ZlgWriter<W: Write> {
@@ -397,11 +396,13 @@ impl<W: Write> ZlgWriter<W> {
                     &mut self.mesh_edges_scratch,
                     &mut self.mesh_summary_scratch,
                 ),
-                BuildProfile::CombinedInlineLowerDelta => encode_bigram_mesh_summary_inline_lower_delta_into(
-                    &chunk.data,
-                    &mut self.mesh_edges_scratch,
-                    &mut self.mesh_summary_scratch,
-                ),
+                BuildProfile::CombinedInlineLowerDelta => {
+                    encode_bigram_mesh_summary_inline_lower_delta_into(
+                        &chunk.data,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                }
                 BuildProfile::CombinedBitsetSeen => encode_bigram_mesh_summary_bitset_seen_into(
                     &chunk.data,
                     &mut self.mesh_bitset_scratch,

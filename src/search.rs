@@ -428,7 +428,6 @@ fn has_ascii_uppercase(bytes: &[u8]) -> bool {
     bytes.iter().any(|byte| byte.is_ascii_uppercase())
 }
 
-
 pub fn encode_bigram_mesh_summary_into(
     bytes: &[u8],
     edges: &mut Vec<u32>,

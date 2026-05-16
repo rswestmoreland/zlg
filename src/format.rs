@@ -177,8 +177,6 @@ impl RawChunk {
     }
 }
 
-#[derive(Debug)]
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildProfile {
     Current,
@@ -221,7 +219,7 @@ pub struct BuildStats {
 impl BuildStats {
     pub fn to_json(self, profile: BuildProfile) -> String {
         format!(
-            "{{\\n  \\"build_profile\\": \\"{}\\",\\n  \\"chunks\\": {},\\n  \\"summary_ns\\": {},\\n  \\"zstd_ns\\": {},\\n  \\"write_ns\\": {},\\n  \\"total_ns\\": {},\\n  \\"summary_bytes\\": {},\\n  \\"compressed_bytes\\": {},\\n  \\"uncompressed_bytes\\": {}\\n}}\\n",
+            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {}\n}}\n",
             profile.as_str(),
             self.chunks,
             self.summary_ns,
@@ -251,6 +249,7 @@ pub struct ZlgWriter<W: Write> {
 }
 
 impl<W: Write> ZlgWriter<W> {
+    #[allow(dead_code)]
     pub fn new(
         writer: W,
         chunk_policy_id: u32,
@@ -317,26 +316,28 @@ impl<W: Write> ZlgWriter<W> {
         let chunk_offset = self.writer.bytes_written();
 
         let summary_start = Instant::now();
-        let summary_is_scratch =
-            self.summary_mode == SearchSummaryMode::MeshBigram && self.build_profile.uses_mesh_scratch();
-        let summary_owned;
-
-        if summary_is_scratch {
+        let summary_is_scratch = self.summary_mode == SearchSummaryMode::MeshBigram
+            && self.build_profile.uses_mesh_scratch();
+        let summary_owned = if summary_is_scratch {
             encode_bigram_mesh_summary_into(
                 &chunk.data,
                 &mut self.mesh_edges_scratch,
                 &mut self.mesh_lower_scratch,
                 &mut self.mesh_summary_scratch,
             );
-            summary_owned = Vec::new();
+            Vec::new()
         } else {
-            summary_owned = match self.summary_mode {
+            match self.summary_mode {
                 SearchSummaryMode::Bitmap => SearchSummary::from_bytes(&chunk.data).encode(),
-                SearchSummaryMode::PathWindow => SearchSummary::from_path_windows(&chunk.data).encode(),
-                SearchSummaryMode::MeshBigram => SearchSummary::from_bigram_mesh(&chunk.data).encode(),
+                SearchSummaryMode::PathWindow => {
+                    SearchSummary::from_path_windows(&chunk.data).encode()
+                }
+                SearchSummaryMode::MeshBigram => {
+                    SearchSummary::from_bigram_mesh(&chunk.data).encode()
+                }
                 SearchSummaryMode::None => Vec::new(),
-            };
-        }
+            }
+        };
 
         let summary_ns = summary_start.elapsed().as_nanos();
         let summary_len = if summary_is_scratch {

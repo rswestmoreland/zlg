@@ -660,7 +660,6 @@ fn collect_bigram_mesh_edges(
     stats
 }
 
-
 fn raw_edge_windows(bytes: &[u8]) -> u64 {
     bytes.len().saturating_sub(2) as u64
 }
@@ -791,6 +790,20 @@ fn collect_bigram_edges_unique(
     }
 }
 
+fn encode_bigram_mesh_edges_into(edges: &[u32], out: &mut Vec<u8>) {
+    out.extend_from_slice(BIGRAM_MESH_MAGIC);
+    out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(edges.len() as u32).to_le_bytes());
+
+    let mut previous = 0u32;
+    for (index, edge) in edges.iter().copied().enumerate() {
+        debug_assert!(edge <= 0x00ff_ffff);
+        let delta = if index == 0 { edge } else { edge - previous };
+        write_varint_u32(delta, out);
+        previous = edge;
+    }
+}
 
 fn radix_sort_u24(values: &mut [u32], scratch: &mut Vec<u32>) {
     if values.len() < 2 {

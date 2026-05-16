@@ -1,0 +1,69 @@
++ cargo fmt --check
++ cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
++ cargo test
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/main.rs (target/debug/deps/zlg-8424f5135bba30a2)
+
+running 16 tests
+test chunk::tests::progressive_line_limits_ramp_to_64k ... ok
+test format::tests::round_trip_single_chunk_in_memory ... ok
+test format::tests::round_trip_binary_payload_bytes_exactly ... ok
+test search::tests::fixed_find_all_preserves_original_case ... ok
+test format::tests::round_trip_utf8_payload_bytes_exactly ... ok
+test search::tests::inline_sparse_and_grouped_profiles_match_combined_summary ... ok
+test search::tests::mesh_summary_handles_binary_bytes ... ok
+test search::tests::mesh_summary_handles_utf8_as_bytes ... ok
+test search::tests::path_window_summary_filters_long_literals ... ok
+test search::tests::positive_lookbehind_unescapes_literal_selector ... ok
+test search::tests::regex_plan_extracts_noncapturing_alternation_prefix ... ok
+test search::tests::regex_plan_extracts_required_literal ... ok
+test search::tests::regex_plan_extracts_top_level_alternation ... ok
+test search::tests::summary_detects_literal_bigrams ... ok
+test search::tests::summary_supports_ascii_ignore_case ... ok
+test search::tests::lower_only_bitset_matches_lower_only_summary ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
++ cargo clippy --all-targets --all-features -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.36s
++ cargo build --release
+    Finished `release` profile [optimized] target(s) in 0.32s
++ bash scripts/phase0h_smoke.sh
+phase0h smoke: pass
++ bash scripts/phase0h_correctness_check.sh
+phase0h correctness ok: regex_alternation
+phase0h correctness ok: fixed_string
+phase0h correctness ok: only_matching
+phase0h correctness ok: line_numbers
+phase0h correctness ok: ignore_case
+phase0h correctness ok: count
+phase0h correctness ok: invert_match
+phase0h correctness ok: fancy_lookbehind_only_matching
+phase0h correctness: pass
++ bash scripts/phase0i_policy_matrix_check.sh
+phase0i policy matrix ok: fixed-lines64k
+phase0i policy matrix ok: progressive-lines
+phase0i policy matrix ok: byte1m
+phase0i policy matrix ok: byte4m
+phase0i policy matrix ok: byte8m
+phase0i policy matrix ok: hybrid-progressive-cap4m
+phase0i policy matrix ok: hybrid-progressive-cap8m
+phase0i policy matrix ok: hybrid-progressive-cap16m
+phase0i policy matrix ok: hybrid-progressive-cap32m
+phase0i policy matrix ok: hybrid-fixed64k-cap8m
+phase0i policy matrix ok: hybrid-fixed64k-cap16m
+phase0i policy matrix ok: hybrid-fixed64k-cap32m
+phase0i policy matrix: pass
++ bash scripts/phase0m_selector_smoke.sh
+phase0m selector smoke: pass
++ python3 tools/phase1e_builder_fairness_bench.py --binary target/release/zlg --lines 80000 --seed 4242 --repeats 3 --corpora high_dup,high_cardinality,unicode,binaryish --output validation_results/phase1e_builder_fairness_bench.md --csv validation_results/phase1e_builder_fairness_bench.csv
+wrote /workspace/zlg/validation_results/phase1e_builder_fairness_bench.md
+wrote /workspace/zlg/validation_results/phase1e_builder_fairness_bench.csv
++ bash scripts/phase0k_csv_commit_guard.sh validation_results/phase1e_builder_fairness_bench.csv
+phase0k guard: CSV exists and is not ignored, status: ?? validation_results/phase1e_builder_fairness_bench.csv
++ bash scripts/phase0i_artifact_hygiene_check.sh
+phase0i artifact hygiene: pass
+warning: csv contains empty fields; verify max_rss_kb is populated
+phase1e RSS check: pass
+phase1e builder fairness once: pass

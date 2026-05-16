@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use std::hash::{BuildHasherDefault, Hasher};
 use memchr::memmem::{self, Finder};
 use pcre2::bytes::RegexBuilder as Pcre2RegexBuilder;
 use regex::bytes::RegexBuilder;
+use std::hash::{BuildHasherDefault, Hasher};
 
 const SUMMARY_MAGIC: &[u8; 4] = b"ZSM1";
 const SUMMARY_VERSION: u16 = 1;
@@ -824,10 +824,11 @@ pub fn encode_bigram_mesh_summary_rdxsort_into(
     lower: &mut Vec<u8>,
     out: &mut Vec<u8>,
 ) -> MeshSummaryBuildStats {
-    use rdxsort::RdxSort;
-
     let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
-    edges.rdxsort();
+    // NOTE:
+    // rdxsort v0.3.0 can panic under UB checks in tests for some inputs.
+    // Keep this profile behavior deterministic by falling back to std sorting.
+    edges.sort_unstable();
     edges.dedup();
     stats.unique_edges = edges.len() as u64;
     encode_bigram_mesh_edges_into(edges, out);
@@ -1086,11 +1087,7 @@ fn push_edge_if_unseen_trie_pair(
     }
 }
 
-fn clear_trie_pair_edge(
-    edge: u32,
-    pair_index: &[[u16; 256]],
-    pair_bitsets: &mut [Vec<[u64; 4]>],
-) {
+fn clear_trie_pair_edge(edge: u32, pair_index: &[[u16; 256]], pair_bitsets: &mut [Vec<[u64; 4]>]) {
     let first = ((edge >> 16) & 0xff) as usize;
     let second = ((edge >> 8) & 0xff) as usize;
     let third = (edge & 0xff) as usize;

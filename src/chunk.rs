@@ -98,6 +98,7 @@ pub struct Chunker {
     policy: ChunkPolicy,
     next_index: u64,
     next_line_number: u64,
+    pending_line: Vec<u8>,
 }
 
 impl Chunker {
@@ -106,6 +107,7 @@ impl Chunker {
             policy,
             next_index: 0,
             next_line_number: 1,
+            pending_line: Vec::new(),
         }
     }
 
@@ -119,11 +121,16 @@ impl Chunker {
         let mut oversized_line = false;
 
         loop {
-            line.clear();
-            let bytes_read = reader.read_until(b'\n', &mut line)?;
-
-            if bytes_read == 0 {
-                break;
+            if self.pending_line.is_empty() {
+                line.clear();
+                let bytes_read = reader.read_until(b'\n', &mut line)?;
+                if bytes_read == 0 {
+                    break;
+                }
+            } else {
+                line.clear();
+                line.extend_from_slice(&self.pending_line);
+                self.pending_line.clear();
             }
 
             if data.is_empty() && byte_cap.is_some_and(|cap| line.len() > cap) {
@@ -134,6 +141,7 @@ impl Chunker {
             }
 
             if !data.is_empty() && byte_cap.is_some_and(|cap| data.len() + line.len() > cap) {
+                self.pending_line.extend_from_slice(&line);
                 break;
             }
 

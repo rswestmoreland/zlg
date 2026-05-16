@@ -568,6 +568,48 @@ def write_markdown(path: Path, rows: list[dict[str, object]], meta: dict[str, ob
             f"{row['build_pushed_edges']} | {row['build_unique_edges']} | {row['build_duplicate_ratio']} |"
         )
 
+    profile_rows = [row for row in rows_for(rows, "compress") if row["tool"] == "zlg"]
+    ranked = sorted(
+        profile_rows,
+        key=lambda row: (
+            float(row["wall_seconds"]) if row["wall_seconds"] else 999999.0,
+            int(row["build_total_ns"]) if row["build_total_ns"] else 999999999999,
+            str(row["build_profile"]),
+        ),
+    )
+    non_bitset = [row for row in ranked if row["build_profile"] != "combined-bitset-seen"]
+
+    doc.extend([
+        "",
+        "## Build profile ranking",
+        "",
+        "| rank | profile | wall_s | total_ns | summary_ns | pushed_edges | unique_edges | duplicate_ratio | bytes |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    for index, row in enumerate(ranked, start=1):
+        doc.append(
+            f"| {index} | {row['build_profile']} | {row['wall_seconds']} | "
+            f"{row['build_total_ns']} | {row['build_summary_ns']} | "
+            f"{row['build_pushed_edges']} | {row['build_unique_edges']} | "
+            f"{row['build_duplicate_ratio']} | {row['output_bytes']} |"
+        )
+
+    if non_bitset:
+        best_non_bitset = non_bitset[0]
+        doc.extend([
+            "",
+            "## Best non-bitset profile",
+            "",
+            "| profile | wall_s | total_ns | summary_ns | pushed_edges | unique_edges | duplicate_ratio | bytes |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+            (
+                f"| {best_non_bitset['build_profile']} | {best_non_bitset['wall_seconds']} | "
+                f"{best_non_bitset['build_total_ns']} | {best_non_bitset['build_summary_ns']} | "
+                f"{best_non_bitset['build_pushed_edges']} | {best_non_bitset['build_unique_edges']} | "
+                f"{best_non_bitset['build_duplicate_ratio']} | {best_non_bitset['output_bytes']} |"
+            ),
+        ])
+
     doc.extend([
         "",
         "## Search sanity using combined profile",

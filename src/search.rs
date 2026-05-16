@@ -791,6 +791,7 @@ fn collect_bigram_edges_unique(
 }
 
 fn encode_bigram_mesh_edges_into(edges: &[u32], out: &mut Vec<u8>) {
+    out.clear();
     out.extend_from_slice(BIGRAM_MESH_MAGIC);
     out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes());

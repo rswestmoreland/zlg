@@ -309,8 +309,9 @@ def run_probe(args: argparse.Namespace) -> tuple[list[dict[str, object]], list[d
                         profile,
                         "--build-stats-json",
                         str(stats_path),
-                        str(corpus),
+                        "-o",
                         str(zlg_path),
+                        str(corpus),
                     ]
                     return (cmd, None)
 

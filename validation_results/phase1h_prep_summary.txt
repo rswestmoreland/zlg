@@ -1,0 +1,38 @@
+Phase 1h locked-stack size diagnosis prep checkpoint.
+
+Scope:
+- Diagnostic-only pass for the locked stack.
+- No builder bakeoff.
+- No new production candidates.
+- No chunk policy change.
+- No mesh-bigram ZBM1 v2 format change.
+
+Locked profile under diagnosis:
+- combined-bitset-seen
+
+Reference rows only:
+- combined-sparse-first-bitset as memory reference
+- combined as historical reference baseline
+- gzip -6 as external size/speed/RSS/CPU baseline
+
+Added:
+- tools/phase1h_size_diagnosis_bench.py
+- scripts/phase1h_size_diagnosis_once.sh
+- docs/PHASE1H_LOCKED_STACK_SIZE_DIAGNOSIS.md
+- docs/CODEX_PHASE1H_PROMPT.md
+- validation_results/phase1h_prep_summary.txt
+
+Expected Codex outputs:
+- validation_results/phase1h_size_diagnosis_once.txt
+- validation_results/phase1h_size_diagnosis.md
+- validation_results/phase1h_size_diagnosis_archive.csv
+- validation_results/phase1h_size_diagnosis_chunks.csv
+
+Local prep checks in ChatGPT:
+- Python syntax check passed.
+- Bash syntax check passed.
+- ASCII scan passed.
+- Path length scan passed.
+- Zip integrity passed after packaging.
+
+Cargo validation must be run in Codex.

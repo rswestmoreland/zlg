@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import struct
 import subprocess
@@ -199,28 +200,58 @@ def parse_time_output(path: Path) -> dict[str, str]:
 
 
 def run_measured(cmd: list[str], *, stdout_path: Path | None, tmp: Path, allow_nonzero: bool = False) -> dict[str, object]:
-    time_bin = Path("/usr/bin/time")
-    if not time_bin.exists():
-        raise SystemExit("/usr/bin/time is required for Phase 1e RSS measurements")
-
-    time_path = tmp / f"time-{time.perf_counter_ns()}.txt"
-    actual_cmd = [str(time_bin), "-f", "user_seconds=%U\nsystem_seconds=%S\nmax_rss_kb=%M", "-o", str(time_path)] + cmd
-
+    time_candidate = shutil.which("time")
+    if time_candidate is None:
+        for fallback in ("/usr/bin/time", "/bin/time"):
+            if Path(fallback).exists():
+                time_candidate = fallback
+                break
+    parsed = {"user_seconds": "", "system_seconds": "", "max_rss_kb": ""}
+    proc = None
+    stdout = ""
+    stderr = ""
     start = time.perf_counter()
-    if stdout_path is None:
-        proc = subprocess.run(actual_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if time_candidate is not None:
+        time_bin = Path(time_candidate)
+        time_path = tmp / f"time-{time.perf_counter_ns()}.txt"
+        actual_cmd = [str(time_bin), "-f", "user_seconds=%U\nsystem_seconds=%S\nmax_rss_kb=%M", "-o", str(time_path)] + cmd
+        if stdout_path is None:
+            proc = subprocess.run(actual_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        else:
+            with stdout_path.open("wb") as handle:
+                proc = subprocess.run(actual_cmd, stdout=handle, stderr=subprocess.PIPE)
+        parsed = parse_time_output(time_path)
+        time_path.unlink(missing_ok=True)
+        stdout = proc.stdout.decode("utf-8", "replace") if isinstance(proc.stdout, bytes) else str(proc.stdout)
+        stderr = proc.stderr.decode("utf-8", "replace") if isinstance(proc.stderr, bytes) else str(proc.stderr)
     else:
-        with stdout_path.open("wb") as handle:
-            proc = subprocess.run(actual_cmd, stdout=handle, stderr=subprocess.PIPE)
+        # Fallback when GNU time is unavailable: sample VmRSS while process runs.
+        out_handle = stdout_path.open("wb") if stdout_path is not None else subprocess.PIPE
+        run_proc = subprocess.Popen(cmd, stdout=out_handle, stderr=subprocess.PIPE)
+        max_rss_kb = 0
+        status_re = re.compile(r"^VmRSS:\s+(\d+)\s+kB$")
+        while run_proc.poll() is None:
+            try:
+                status = Path(f"/proc/{run_proc.pid}/status").read_text(encoding="utf-8", errors="replace")
+                for line in status.splitlines():
+                    m = status_re.match(line)
+                    if m:
+                        max_rss_kb = max(max_rss_kb, int(m.group(1)))
+                        break
+            except FileNotFoundError:
+                pass
+            time.sleep(0.01)
+        out_bytes, err_bytes = run_proc.communicate()
+        if stdout_path is not None:
+            out_handle.close()
+        proc = run_proc
+        parsed["max_rss_kb"] = str(max_rss_kb) if max_rss_kb else ""
+        stdout = out_bytes.decode("utf-8", "replace") if isinstance(out_bytes, bytes) else str(out_bytes)
+        stderr = err_bytes.decode("utf-8", "replace") if isinstance(err_bytes, bytes) else str(err_bytes)
     wall = time.perf_counter() - start
-
-    parsed = parse_time_output(time_path)
-    time_path.unlink(missing_ok=True)
     if not parsed["max_rss_kb"]:
         raise SystemExit(f"RSS capture failed for command: {' '.join(cmd)}")
 
-    stdout = proc.stdout.decode("utf-8", "replace") if isinstance(proc.stdout, bytes) else str(proc.stdout)
-    stderr = proc.stderr.decode("utf-8", "replace") if isinstance(proc.stderr, bytes) else str(proc.stderr)
     if proc.returncode != 0 and not allow_nonzero:
         raise SystemExit(
             f"command failed {proc.returncode}: {' '.join(cmd)}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"

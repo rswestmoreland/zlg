@@ -3,8 +3,8 @@ use crate::search::{
     encode_bigram_mesh_summary_bitset_seen_into, encode_bigram_mesh_summary_bucket256_into,
     encode_bigram_mesh_summary_case_raw_into, encode_bigram_mesh_summary_grouped_buckets_into,
     encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_identity_hash_into,
-    encode_bigram_mesh_summary_inline_lower_delta_into,
-    encode_bigram_mesh_summary_into, encode_bigram_mesh_summary_lower_only_bitset_seen_into,
+    encode_bigram_mesh_summary_inline_lower_delta_into, encode_bigram_mesh_summary_into,
+    encode_bigram_mesh_summary_lower_only_bitset_seen_into,
     encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
     encode_bigram_mesh_summary_rdst_into, encode_bigram_mesh_summary_rdxsort_into,
     encode_bigram_mesh_summary_sparse_first_bitset_into,
@@ -451,12 +451,14 @@ impl<W: Write> ZlgWriter<W> {
                     &mut self.mesh_lower_scratch,
                     &mut self.mesh_summary_scratch,
                 ),
-                BuildProfile::CombinedIdentityHash => encode_bigram_mesh_summary_identity_hash_into(
-                    &chunk.data,
-                    &mut self.mesh_edges_scratch,
-                    &mut self.mesh_lower_scratch,
-                    &mut self.mesh_summary_scratch,
-                ),
+                BuildProfile::CombinedIdentityHash => {
+                    encode_bigram_mesh_summary_identity_hash_into(
+                        &chunk.data,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_lower_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                }
                 BuildProfile::CombinedRdxsort => encode_bigram_mesh_summary_rdxsort_into(
                     &chunk.data,
                     &mut self.mesh_edges_scratch,
@@ -677,7 +679,8 @@ impl<W: Write> ZlgWriter<W> {
             .iter()
             .map(|bucket| bucket.capacity() as u64 * 32)
             .sum();
-        let first_bitset_bytes = sparse_first_bitset_bytes + trie_pair_index_bytes + trie_pair_bitset_bytes;
+        let first_bitset_bytes =
+            sparse_first_bitset_bytes + trie_pair_index_bytes + trie_pair_bitset_bytes;
         let group_bucket_bytes: u64 = self
             .mesh_group_buckets_scratch
             .iter()

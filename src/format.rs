@@ -14,7 +14,7 @@ use crate::search::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use crc32fast::hash as crc32;
+use crc32fast::{hash as crc32, Hasher};
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::time::Instant;
 
@@ -1047,6 +1047,7 @@ mod tests {
             first_line_number: 1,
             line_count: 1,
             data: data.to_vec(),
+            crc32: crc32(data),
             flags: 1,
         };
 

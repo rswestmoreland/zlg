@@ -252,5 +252,4 @@ mod tests {
         let chunk = chunker.next_chunk(&mut reader).unwrap().unwrap();
         assert_eq!(chunk.crc32, crc32fast::hash(&chunk.data));
     }
-
 }

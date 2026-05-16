@@ -1,14 +1,14 @@
 use crate::chunk::PlainChunk;
 use crate::search::{
-    encode_bigram_mesh_summary_bitset_seen_into, encode_bigram_mesh_summary_bucket256_into,
-    encode_bigram_mesh_summary_case_raw_into, encode_bigram_mesh_summary_grouped_buckets_into,
-    encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_identity_hash_into,
+    encode_bigram_mesh_summary_bitset_paged_seen_into, encode_bigram_mesh_summary_bitset_seen_into,
+    encode_bigram_mesh_summary_bucket256_into, encode_bigram_mesh_summary_case_raw_into,
+    encode_bigram_mesh_summary_grouped_buckets_into, encode_bigram_mesh_summary_hash_into,
+    encode_bigram_mesh_summary_identity_hash_into,
     encode_bigram_mesh_summary_inline_lower_delta_into, encode_bigram_mesh_summary_into,
     encode_bigram_mesh_summary_lower_only_bitset_seen_into,
     encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
     encode_bigram_mesh_summary_rdst_into, encode_bigram_mesh_summary_rdxsort_into,
     encode_bigram_mesh_summary_sparse_first_bitset_into,
-    encode_bigram_mesh_summary_bitset_paged_seen_into,
     encode_bigram_mesh_summary_trie_pair_bitset_into, MeshSummaryBuildStats, SearchSummary,
     SearchSummaryMode,
 };
@@ -506,7 +506,7 @@ impl<W: Write> ZlgWriter<W> {
                         &mut self.mesh_edges_scratch,
                         &mut self.mesh_summary_scratch,
                     )
-                },
+                }
                 BuildProfile::CombinedLowerOnlyBitsetSeen => {
                     encode_bigram_mesh_summary_lower_only_bitset_seen_into(
                         &chunk.data,

@@ -509,7 +509,7 @@ impl<W: Write> ZlgWriter<W> {
                         &mut self.mesh_edges_scratch,
                         &mut self.mesh_summary_scratch,
                     )
-                },
+                }
                 BuildProfile::CombinedBitsetPagedSeen => {
                     encode_bigram_mesh_summary_bitset_paged_seen_into(
                         &chunk.data,

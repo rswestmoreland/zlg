@@ -212,16 +212,16 @@ pub struct CompressArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    #[arg(short = 'l', long, default_value_t = 3)]
+    #[arg(short = 'l', long, default_value_t = 6)]
     pub level: i32,
 
-    #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192)]
+    #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192Cap8m)]
     pub chunk_policy: ChunkPolicyArg,
 
     #[arg(long, value_enum, default_value_t = SummaryModeArg::MeshBigram)]
     pub summary_mode: SummaryModeArg,
 
-    #[arg(long, value_enum, default_value_t = BuildProfileArg::Combined)]
+    #[arg(long, value_enum, default_value_t = BuildProfileArg::CombinedBitsetSeen)]
     pub build_profile: BuildProfileArg,
 
     #[arg(long)]

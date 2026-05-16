@@ -2,7 +2,7 @@
 
 `zlg` is a prototype single-binary Linux CLI utility and `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-This checkpoint is intended for Codex/Rust validation and benchmark iteration. The active benchmark baseline is fixed-lines8192 + mesh-bigram ZBM1 v2 + zstd::bulk::Compressor + streaming grep.
+This checkpoint is intended for Codex/Rust validation and benchmark iteration. The selected production candidate stack is fixed-lines8192 with an 8 MiB byte cap + mesh-bigram ZBM1 v2 + zstd::bulk::Compressor + combined-bitset-seen + streaming grep.
 
 ## Current scope
 
@@ -27,17 +27,18 @@ Implemented as source files:
 
 This is not a stable file format.
 
-The current file format is still experimental and must not be frozen yet. The current default compression path is fixed-lines8192 + mesh-bigram + combined.
+The current file format is still experimental and must not be frozen yet. The current default compression path is fixed-lines8192 with an 8 MiB byte cap + mesh-bigram + combined-bitset-seen at zstd level 6.
 
 
 ## Active build-profile baseline
 
-The locked benchmark strategy is:
+The selected strategy is:
 
 ```text
-fixed-lines8192
+fixed-lines8192 with 8 MiB byte cap
 + mesh-bigram ZBM1 v2
 + zstd::bulk::Compressor
++ combined-bitset-seen
 + streaming grep
 + Rust regex default
 + PCRE2 for -P
@@ -46,16 +47,11 @@ fixed-lines8192
 + --head / --max-count early stop
 ```
 
-Phase 1f narrowed the production builder candidates. `combined-bitset-seen` is the leading build-speed candidate, while `combined-sparse-first-bitset` remains the second candidate for lower-memory comparison. Phase 1g focuses on size overhead versus gzip and adds `combined-bitset-paged-seen`, a full-u24 paged bitset variant that performs the same dedupe-before-push function as `combined-bitset-seen` but stores the bitset as 256 first-byte pages.
+`combined-bitset-seen` is the selected production builder candidate. Earlier sort, hash, sparse, trie, paged, and lower-only builder experiments are retained only where still needed for historical diagnostics or compatibility; they are not active production candidates.
 
-Current carry-forward build profiles are:
+The standard/default compression level is zstd level 6. Phase 1k adds diagnostics for zstd level 8 versus gzip level 8 and keeps level 3/6/9 data for fast/standard/best preset planning.
 
-- `combined-bitset-seen`: leading candidate, baseline-equivalent, full contiguous 2 MiB u24 dedup table.
-- `combined-sparse-first-bitset`: second candidate, baseline-equivalent, sparse first-byte to two-byte-suffix bitsets.
-- `combined-bitset-paged-seen`: experimental Phase 1g variant, baseline-equivalent, full 2 MiB u24 space stored as first-byte pages.
-- `combined`: safe semantic baseline and reference builder.
-
-Dropped external sort experiments no longer require `rdxsort` or `rdst` dependencies. Legacy build-profile names may remain parseable for now, but they are not active production candidates.
+Dropped external sort experiments no longer require `rdxsort` or `rdst` dependencies.
 
 ## Success criteria
 

@@ -1,0 +1,13 @@
+Phase 1k prep checkpoint created.
+
+Scope:
+- Lock selected stack defaults: fixed-lines8192-cap8m, level 6, combined-bitset-seen.
+- Add gzip -8 and zstd -8 diagnostic comparison.
+- Keep gzip -6/-9 and zstd levels 3/6/9 for context.
+- Add no-summary diagnostic rows at levels 6/8/9.
+- Add default CLI verification rows.
+- Add uncapped long-line reference rows only for cap/RSS comparison.
+- Move CRC32 computation into chunk assembly so archive writing does not perform a separate CRC pass over each chunk.
+
+No new builder candidates were added.
+The on-disk format remains experimental and unchanged.

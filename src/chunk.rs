@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crc32fast::Hasher;
 use std::io::BufRead;
 
 #[derive(Clone, Copy, Debug)]
@@ -91,6 +92,7 @@ pub struct PlainChunk {
     pub line_count: u64,
     pub data: Vec<u8>,
     pub flags: u16,
+    pub crc32: u32,
 }
 
 #[derive(Debug)]
@@ -118,6 +120,7 @@ impl Chunker {
         let mut data = Vec::new();
         let mut line = Vec::new();
         let mut line_count = 0u64;
+        let mut crc32 = Hasher::new();
         let mut oversized_line = false;
 
         loop {
@@ -136,6 +139,7 @@ impl Chunker {
             if data.is_empty() && byte_cap.is_some_and(|cap| line.len() > cap) {
                 oversized_line = true;
                 data.extend_from_slice(&line);
+                crc32.update(&line);
                 line_count += 1;
                 break;
             }
@@ -146,6 +150,7 @@ impl Chunker {
             }
 
             data.extend_from_slice(&line);
+            crc32.update(&line);
             line_count += 1;
 
             if line_count >= line_limit {
@@ -163,6 +168,7 @@ impl Chunker {
             line_count,
             data,
             flags: if oversized_line { 0x0002 } else { 0x0001 },
+            crc32: crc32.finalize(),
         };
 
         self.next_index += 1;
@@ -211,4 +217,40 @@ mod tests {
         chunker.next_index = 4;
         assert_eq!(chunker.current_line_limit(), 65_536);
     }
+    #[test]
+    fn fixed_lines_cap8m_defers_overflow_line_without_dropping() {
+        let mut chunker = Chunker::new(ChunkPolicy::FixedLines {
+            lines: 8_192,
+            byte_cap: Some(8 * 1024 * 1024),
+        });
+        let first = vec![b'a'; 5 * 1024 * 1024];
+        let second = vec![b'b'; 5 * 1024 * 1024];
+        let mut input = Vec::new();
+        input.extend_from_slice(&first);
+        input.push(b'\n');
+        input.extend_from_slice(&second);
+        input.push(b'\n');
+        let mut reader = std::io::Cursor::new(input.clone());
+
+        let chunk0 = chunker.next_chunk(&mut reader).unwrap().unwrap();
+        let chunk1 = chunker.next_chunk(&mut reader).unwrap().unwrap();
+        assert!(chunker.next_chunk(&mut reader).unwrap().is_none());
+
+        let mut output = Vec::new();
+        output.extend_from_slice(&chunk0.data);
+        output.extend_from_slice(&chunk1.data);
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn chunk_crc_matches_chunk_bytes() {
+        let mut chunker = Chunker::new(ChunkPolicy::FixedLines {
+            lines: 2,
+            byte_cap: None,
+        });
+        let mut reader = std::io::Cursor::new(b"alpha\nbeta\n".to_vec());
+        let chunk = chunker.next_chunk(&mut reader).unwrap().unwrap();
+        assert_eq!(chunk.crc32, crc32fast::hash(&chunk.data));
+    }
+
 }

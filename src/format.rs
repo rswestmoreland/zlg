@@ -14,7 +14,7 @@ use crate::search::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use crc32fast::Hasher;
+use crc32fast::hash as crc32;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::time::Instant;
 
@@ -606,7 +606,7 @@ impl<W: Write> ZlgWriter<W> {
             uncompressed_len: chunk.data.len() as u64,
             compressed_len: compressed.len() as u64,
             summary_len: summary_len as u32,
-            crc32: crc32(&chunk.data),
+            crc32: chunk.crc32,
         };
 
         let write_start = Instant::now();
@@ -970,12 +970,6 @@ fn copy_n_to_sink<R: Read>(reader: &mut R, mut len: u64) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut hasher = Hasher::new();
-    hasher.update(bytes);
-    hasher.finalize()
 }
 
 fn write_u16<W: Write>(writer: &mut W, value: u16) -> Result<()> {

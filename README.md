@@ -1,8 +1,8 @@
-# zlg Phase 0g Prototype
+# zlg Prototype
 
 `zlg` is a prototype single-binary Linux CLI utility and `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-This checkpoint is intended for Codex/Rust validation and benchmark iteration. It was prepared without running Cargo in this environment.
+This checkpoint is intended for Codex/Rust validation and benchmark iteration. The active benchmark baseline is fixed-lines8192 + mesh-bigram ZBM1 v2 + zstd::bulk::Compressor + streaming grep.
 
 ## Current scope
 
@@ -18,15 +18,44 @@ Implemented as source files:
 - footer directory prototype
 - fixed-string grep
 - default Rust regex grep
-- enhanced `-P` mode using `fancy-regex`
+- enhanced `-P` mode using PCRE2 bytes regex
 - line-number, only-matching, count, ignore-case, invert-match, and files-with-matches flags
 - fixed-line, progressive-line, byte-target, and hybrid chunk policy options
+- build profiles for mesh-bigram summary builder experiments
 
 ## Important status
 
 This is not a stable file format.
 
-Phase 0g exists to make benchmark and validation work concrete before freezing the v1 format.
+The current file format is still experimental and must not be frozen yet. The current default compression path is fixed-lines8192 + mesh-bigram + combined.
+
+
+## Active build-profile baseline
+
+The locked benchmark strategy is:
+
+```text
+fixed-lines8192
++ mesh-bigram ZBM1 v2
++ zstd::bulk::Compressor
++ streaming grep
++ Rust regex default
++ PCRE2 for -P
++ literal prefiltering
++ positive-lookbehind fast path
++ --head / --max-count early stop
+```
+
+`combined-bitset-seen` was the fastest build profile in the latest Phase 1c-fix benchmark, but it is experimental and not locked as the default. It uses a reusable 2 MiB u24 presence table. Phase 1d adds fairness and memory accounting plus lower-memory alternatives.
+
+Active build-profile controls include:
+
+- `combined`: safe semantic baseline using reusable zstd bulk compression and mesh scratch buffers.
+- `combined-inline-lower-delta`: baseline-equivalent, avoids a full lowercase chunk copy.
+- `combined-bitset-seen`: baseline-equivalent, full 2 MiB u24 dedup table.
+- `combined-sparse-first-bitset`: baseline-equivalent, sparse first-byte to two-byte-suffix bitsets.
+- `combined-grouped-buckets`: baseline-equivalent, grouped first-byte arrays for sort/dedup.
+- `combined-case-raw`, `combined-lower-only`, and `combined-lower-only-bitset-seen`: experimental controls with narrower search-pruning semantics.
 
 ## Success criteria
 

@@ -49,6 +49,12 @@ pub struct MeshSummaryBuildStats {
     pub raw_edge_windows: u64,
     pub pushed_edges: u64,
     pub unique_edges: u64,
+    pub bitset_resizes: u64,
+    pub bitset_cleared_edges: u64,
+    pub touched_first_buckets: u64,
+    pub bitset_scratch_bytes: u64,
+    pub first_bitset_scratch_bytes: u64,
+    pub group_bucket_scratch_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,6 +69,11 @@ const PATH_WINDOW_MAGIC: &[u8; 4] = b"ZPW1";
 const PATH_WINDOW_VERSION: u16 = 1;
 const BIGRAM_MESH_MAGIC: &[u8; 4] = b"ZBM1";
 const BIGRAM_MESH_VERSION: u16 = 2;
+const U24_EDGE_SPACE_BITS: usize = 1 << 24;
+const U24_EDGE_SPACE_WORDS: usize = U24_EDGE_SPACE_BITS / 64;
+const FIRST_BYTE_SUFFIX_BITS: usize = 1 << 16;
+const FIRST_BYTE_SUFFIX_WORDS: usize = FIRST_BYTE_SUFFIX_BITS / 64;
+const GROUPED_FIRST_BYTE_BUCKETS: usize = 32;
 const PATH_WINDOW_MIN: usize = 6;
 const PATH_WINDOW_MID: usize = 8;
 const PATH_WINDOW_MAX: usize = 12;
@@ -574,16 +585,13 @@ pub fn encode_bigram_mesh_summary_bitset_seen_into(
     edges: &mut Vec<u32>,
     out: &mut Vec<u8>,
 ) -> MeshSummaryBuildStats {
-    const EDGE_SPACE_BITS: usize = 1 << 24;
-    const EDGE_SPACE_WORDS: usize = EDGE_SPACE_BITS / 64;
-
-    if bitset.len() < EDGE_SPACE_WORDS {
-        bitset.resize(EDGE_SPACE_WORDS, 0);
-    }
+    let resized = ensure_full_u24_bitset(bitset);
     edges.clear();
-    edges.reserve(bytes.len().saturating_sub(2));
+    edges.reserve(bytes.len().saturating_sub(2).saturating_mul(2));
     let mut stats = MeshSummaryBuildStats {
         raw_edge_windows: raw_edge_windows(bytes),
+        bitset_resizes: resized as u64,
+        bitset_scratch_bytes: bitset.len() as u64 * 8,
         ..MeshSummaryBuildStats::default()
     };
 
@@ -603,11 +611,152 @@ pub fn encode_bigram_mesh_summary_bitset_seen_into(
         }
     }
 
+    clear_full_bitset_edges(edges, bitset, &mut stats);
+    edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_lower_only_bitset_seen_into(
+    bytes: &[u8],
+    bitset: &mut Vec<u64>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    let resized = ensure_full_u24_bitset(bitset);
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        bitset_resizes: resized as u64,
+        bitset_scratch_bytes: bitset.len() as u64 * 8,
+        ..MeshSummaryBuildStats::default()
+    };
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            push_edge_if_unseen(lowered, bitset, edges, &mut stats);
+        }
+    }
+
+    clear_full_bitset_edges(edges, bitset, &mut stats);
+    edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_sparse_first_bitset_into(
+    bytes: &[u8],
+    first_bitsets: &mut Vec<Vec<u64>>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    if first_bitsets.len() < 256 {
+        first_bitsets.resize_with(256, Vec::new);
+    }
+
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2).saturating_mul(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        first_bitset_scratch_bytes: first_bitset_scratch_bytes(first_bitsets),
+        ..MeshSummaryBuildStats::default()
+    };
+    let mut touched_first = [false; 256];
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            push_edge_if_unseen_first_bitset(
+                original,
+                first_bitsets,
+                &mut touched_first,
+                edges,
+                &mut stats,
+            );
+
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            if lowered != original {
+                push_edge_if_unseen_first_bitset(
+                    lowered,
+                    first_bitsets,
+                    &mut touched_first,
+                    edges,
+                    &mut stats,
+                );
+            }
+        }
+    }
+
     for edge in edges.iter().copied() {
-        clear_edge_bit(edge, bitset);
+        clear_first_bitset_edge(edge, first_bitsets);
+        stats.bitset_cleared_edges += 1;
     }
     edges.sort_unstable();
     stats.unique_edges = edges.len() as u64;
+    stats.touched_first_buckets = touched_first.iter().filter(|value| **value).count() as u64;
+    stats.first_bitset_scratch_bytes = first_bitset_scratch_bytes(first_bitsets);
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_grouped_buckets_into(
+    bytes: &[u8],
+    buckets: &mut Vec<Vec<u32>>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    if buckets.len() < GROUPED_FIRST_BYTE_BUCKETS {
+        buckets.resize_with(GROUPED_FIRST_BYTE_BUCKETS, Vec::new);
+    }
+    for bucket in buckets.iter_mut() {
+        bucket.clear();
+    }
+
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            push_edge_to_grouped_bucket(original, buckets, &mut stats);
+
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            if lowered != original {
+                push_edge_to_grouped_bucket(lowered, buckets, &mut stats);
+            }
+        }
+    }
+
+    edges.clear();
+    for bucket in buckets.iter_mut() {
+        if bucket.is_empty() {
+            continue;
+        }
+        bucket.sort_unstable();
+        bucket.dedup();
+        edges.extend(bucket.iter().copied());
+    }
+
+    stats.unique_edges = edges.len() as u64;
+    stats.group_bucket_scratch_bytes = grouped_bucket_scratch_bytes(buckets);
     encode_bigram_mesh_edges_into(edges, out);
     stats
 }
@@ -710,6 +859,97 @@ fn clear_edge_bit(edge: u32, bitset: &mut [u64]) {
     let word = (edge >> 6) as usize;
     let mask = 1u64 << (edge & 63);
     bitset[word] &= !mask;
+}
+
+fn ensure_full_u24_bitset(bitset: &mut Vec<u64>) -> bool {
+    if bitset.len() < U24_EDGE_SPACE_WORDS {
+        bitset.resize(U24_EDGE_SPACE_WORDS, 0);
+        true
+    } else {
+        false
+    }
+}
+
+fn clear_full_bitset_edges(
+    edges: &[u32],
+    bitset: &mut [u64],
+    stats: &mut MeshSummaryBuildStats,
+) {
+    for edge in edges.iter().copied() {
+        clear_edge_bit(edge, bitset);
+        stats.bitset_cleared_edges += 1;
+    }
+}
+
+fn push_edge_if_unseen_first_bitset(
+    edge: u32,
+    first_bitsets: &mut [Vec<u64>],
+    touched_first: &mut [bool; 256],
+    edges: &mut Vec<u32>,
+    stats: &mut MeshSummaryBuildStats,
+) {
+    let first = ((edge >> 16) & 0xff) as usize;
+    if first_bitsets[first].is_empty() {
+        first_bitsets[first].resize(FIRST_BYTE_SUFFIX_WORDS, 0);
+        stats.bitset_resizes += 1;
+    }
+
+    let suffix = (edge & 0xffff) as usize;
+    let word = suffix >> 6;
+    let mask = 1u64 << (suffix & 63);
+    if first_bitsets[first][word] & mask == 0 {
+        first_bitsets[first][word] |= mask;
+        touched_first[first] = true;
+        edges.push(edge);
+        stats.pushed_edges += 1;
+    }
+}
+
+fn clear_first_bitset_edge(edge: u32, first_bitsets: &mut [Vec<u64>]) {
+    let first = ((edge >> 16) & 0xff) as usize;
+    if first_bitsets[first].is_empty() {
+        return;
+    }
+    let suffix = (edge & 0xffff) as usize;
+    let word = suffix >> 6;
+    let mask = 1u64 << (suffix & 63);
+    first_bitsets[first][word] &= !mask;
+}
+
+fn first_bitset_scratch_bytes(first_bitsets: &[Vec<u64>]) -> u64 {
+    first_bitsets
+        .iter()
+        .map(|bucket| bucket.len() as u64 * 8)
+        .sum()
+}
+
+fn push_edge_to_grouped_bucket(
+    edge: u32,
+    buckets: &mut [Vec<u32>],
+    stats: &mut MeshSummaryBuildStats,
+) {
+    let group = grouped_first_byte_bucket(((edge >> 16) & 0xff) as u8);
+    buckets[group].push(edge);
+    stats.pushed_edges += 1;
+}
+
+fn grouped_first_byte_bucket(first: u8) -> usize {
+    match first {
+        0..=47 => 0,
+        b'0'..=b'9' => 1,
+        58..=64 => 2,
+        b'A'..=b'Z' => 3,
+        91..=96 => 4,
+        b'a'..=b'z' => 5 + (first - b'a') as usize,
+        _ => 31,
+    }
+}
+
+fn grouped_bucket_scratch_bytes(buckets: &[Vec<u32>]) -> u64 {
+    buckets
+        .iter()
+        .map(|bucket| bucket.capacity() as u64 * 4)
+        .sum()
 }
 
 fn bucket_sort_dedup_u24(values: &mut Vec<u32>, scratch: &mut Vec<u32>) {
@@ -1672,5 +1912,79 @@ mod tests {
         let plan = regex_selector_plan(r"(?:foo|bar)[0-9]");
         assert_eq!(plan.kind(), "literal_any");
         assert_eq!(plan.count(), 2);
+    }
+
+    #[test]
+    fn inline_sparse_and_grouped_profiles_match_combined_summary() {
+        let data = b"Alpha ERROR beta src_ip=192.168.102.55 username=Admin\n";
+        let mut edges = Vec::new();
+        let mut lower = Vec::new();
+        let mut out_combined = Vec::new();
+        encode_bigram_mesh_summary_into(data, &mut edges, &mut lower, &mut out_combined);
+
+        let mut bitsets = Vec::new();
+        let mut out_sparse = Vec::new();
+        encode_bigram_mesh_summary_sparse_first_bitset_into(
+            data,
+            &mut bitsets,
+            &mut edges,
+            &mut out_sparse,
+        );
+        assert_eq!(out_sparse, out_combined);
+
+        let mut buckets = Vec::new();
+        let mut out_grouped = Vec::new();
+        encode_bigram_mesh_summary_grouped_buckets_into(
+            data,
+            &mut buckets,
+            &mut edges,
+            &mut out_grouped,
+        );
+        assert_eq!(out_grouped, out_combined);
+    }
+
+    #[test]
+    fn lower_only_bitset_matches_lower_only_summary() {
+        let data = b"Alpha ERROR beta src_ip=192.168.102.55 username=Admin\n";
+        let mut edges = Vec::new();
+        let mut out_lower = Vec::new();
+        encode_bigram_mesh_summary_lower_only_into(data, &mut edges, &mut out_lower);
+
+        let mut bitset = Vec::new();
+        let mut out_bitset = Vec::new();
+        encode_bigram_mesh_summary_lower_only_bitset_seen_into(
+            data,
+            &mut bitset,
+            &mut edges,
+            &mut out_bitset,
+        );
+        assert_eq!(out_bitset, out_lower);
+    }
+
+    #[test]
+    fn mesh_summary_handles_utf8_as_bytes() {
+        let data = b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86 user=\xe3\x82\xab\xe3\x83\x8a msg=\"\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x88\x90\xe5\x8a\x9f\"\n";
+        let summary = SearchSummary::from_bigram_mesh(data);
+        assert!(summary.may_contain_literal(
+            b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86",
+            false
+        ));
+        assert!(summary.may_contain_literal(
+            b"\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x88\x90\xe5\x8a\x9f",
+            false
+        ));
+        assert!(!summary.may_contain_literal(
+            b"username=\xe3\x81\xaf\xe3\x81\xaa",
+            false
+        ));
+    }
+
+    #[test]
+    fn mesh_summary_handles_binary_bytes() {
+        let data = b"\x89PNG\r\n\x1a\n\x00\x00IHDR\x00zlg\x00IDAT\xff\x00END";
+        let summary = SearchSummary::from_bigram_mesh(data);
+        assert!(summary.may_contain_literal(b"PNG\r\n", false));
+        assert!(summary.may_contain_literal(b"IDAT\xff", false));
+        assert!(!summary.may_contain_literal(b"GIF89a", false));
     }
 }

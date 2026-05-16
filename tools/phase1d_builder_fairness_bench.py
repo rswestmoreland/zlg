@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Phase 1c case strategy and duplicate-control shootout.
+"""Phase 1d builder fairness and robustness benchmark.
 
 The on-disk format remains unchanged. This benchmark keeps fixed-lines8192 +
-mesh-bigram and compares case-handling and duplicate-control build profiles.
+mesh-bigram and compares build profiles with explicit scratch/memory accounting.
 """
 
 from __future__ import annotations
@@ -28,11 +28,15 @@ from phase0q_needle_corpus_probe import NEEDLE_IP, make_needle_corpus, sha256  #
 
 BUILD_PROFILES = [
     "combined",
-    "combined-case-raw",
-    "combined-lower-only",
     "combined-inline-lower-delta",
     "combined-bitset-seen",
+    "combined-lower-only-bitset-seen",
+    "combined-sparse-first-bitset",
+    "combined-grouped-buckets",
     "combined-bucket256",
+    "combined-radix",
+    "combined-case-raw",
+    "combined-lower-only",
 ]
 
 QUERIES = [
@@ -273,6 +277,17 @@ def base_row(meta: dict[str, object]) -> dict[str, object]:
         "build_pushed_edges": "",
         "build_unique_edges": "",
         "build_duplicate_ratio": "",
+        "build_bitset_resizes": "",
+        "build_bitset_cleared_edges": "",
+        "build_touched_first_buckets": "",
+        "build_scratch_bytes": "",
+        "build_bitset_scratch_bytes": "",
+        "build_first_bitset_scratch_bytes": "",
+        "build_edge_scratch_capacity_bytes": "",
+        "build_sort_scratch_capacity_bytes": "",
+        "build_lower_scratch_capacity_bytes": "",
+        "build_summary_scratch_capacity_bytes": "",
+        "build_group_bucket_scratch_bytes": "",
         "chunks_total": "",
         "chunks_skipped": "",
         "candidate_chunks": "",
@@ -320,6 +335,17 @@ def add_build_stats(row: dict[str, object], stats: dict[str, object]) -> None:
         "raw_edge_windows": "build_raw_edge_windows",
         "pushed_edges": "build_pushed_edges",
         "unique_edges": "build_unique_edges",
+        "bitset_resizes": "build_bitset_resizes",
+        "bitset_cleared_edges": "build_bitset_cleared_edges",
+        "touched_first_buckets": "build_touched_first_buckets",
+        "scratch_bytes": "build_scratch_bytes",
+        "bitset_scratch_bytes": "build_bitset_scratch_bytes",
+        "first_bitset_scratch_bytes": "build_first_bitset_scratch_bytes",
+        "edge_scratch_capacity_bytes": "build_edge_scratch_capacity_bytes",
+        "sort_scratch_capacity_bytes": "build_sort_scratch_capacity_bytes",
+        "lower_scratch_capacity_bytes": "build_lower_scratch_capacity_bytes",
+        "summary_scratch_capacity_bytes": "build_summary_scratch_capacity_bytes",
+        "group_bucket_scratch_bytes": "build_group_bucket_scratch_bytes",
     }
     for source, target in mapping.items():
         row[target] = stats.get(source, "")
@@ -356,7 +382,7 @@ def probe(args: argparse.Namespace) -> tuple[list[dict[str, object]], dict[str, 
         raise SystemExit(f"binary not found: {binary}")
 
     rows: list[dict[str, object]] = []
-    with tempfile.TemporaryDirectory(prefix="zlg-phase1c-") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="zlg-phase1d-") as tmp_name:
         tmp = Path(tmp_name)
         devnull = Path(os.devnull)
         corpus = tmp / "bench.log"
@@ -540,9 +566,9 @@ def rows_for(rows: list[dict[str, object]], operation: str) -> list[dict[str, ob
 
 def write_markdown(path: Path, rows: list[dict[str, object]], meta: dict[str, object]) -> None:
     doc = [
-        "# zlg Phase 1c case and duplicate-control shootout",
+        "# zlg Phase 1d builder fairness and robustness shootout",
         "",
-        "This report compares case and duplicate-control profiles for the same format:",
+        "This report compares builder profiles and scratch-memory tradeoffs for the same format:",
         "fixed-lines8192 + mesh-bigram ZBM1 v2.",
         "",
         "## Corpus",
@@ -556,16 +582,17 @@ def write_markdown(path: Path, rows: list[dict[str, object]], meta: dict[str, ob
         "",
         "## Compression and build profile",
         "",
-        "| tool | profile | bytes | vs_gzip6 | wall_s | cpu_s | summary_ns | zstd_ns | write_ns | total_ns | summary_bytes | raw_edges | pushed_edges | unique_edges | duplicate_ratio |",
+        "| tool | profile | bytes | vs_gzip6 | wall_s | cpu_s | total_ns | summary_ns | scratch_bytes | bitset_bytes | first_bitset_bytes | grouped_bucket_bytes | pushed_edges | unique_edges | duplicate_ratio |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows_for(rows, "compress"):
         doc.append(
             f"| {row['tool']} | {row['build_profile']} | {row['output_bytes']} | "
             f"{row['size_vs_gzip6_bytes']} | {row['wall_seconds']} | {row['total_cpu_seconds']} | "
-            f"{row['build_summary_ns']} | {row['build_zstd_ns']} | {row['build_write_ns']} | "
-            f"{row['build_total_ns']} | {row['zlg_summary_bytes']} | {row['build_raw_edge_windows']} | "
-            f"{row['build_pushed_edges']} | {row['build_unique_edges']} | {row['build_duplicate_ratio']} |"
+            f"{row['build_total_ns']} | {row['build_summary_ns']} | {row['build_scratch_bytes']} | "
+            f"{row['build_bitset_scratch_bytes']} | {row['build_first_bitset_scratch_bytes']} | "
+            f"{row['build_group_bucket_scratch_bytes']} | {row['build_pushed_edges']} | "
+            f"{row['build_unique_edges']} | {row['build_duplicate_ratio']} |"
         )
 
     profile_rows = [row for row in rows_for(rows, "compress") if row["tool"] == "zlg"]
@@ -577,19 +604,21 @@ def write_markdown(path: Path, rows: list[dict[str, object]], meta: dict[str, ob
             str(row["build_profile"]),
         ),
     )
-    non_bitset = [row for row in ranked if row["build_profile"] != "combined-bitset-seen"]
+    non_bitset = [row for row in ranked if "bitset" not in str(row["build_profile"])]
 
     doc.extend([
         "",
         "## Build profile ranking",
         "",
-        "| rank | profile | wall_s | total_ns | summary_ns | pushed_edges | unique_edges | duplicate_ratio | bytes |",
-        "|---:|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| rank | profile | wall_s | total_ns | summary_ns | scratch_bytes | bitset_bytes | first_bitset_bytes | grouped_bucket_bytes | pushed_edges | unique_edges | duplicate_ratio | bytes |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ])
     for index, row in enumerate(ranked, start=1):
         doc.append(
             f"| {index} | {row['build_profile']} | {row['wall_seconds']} | "
             f"{row['build_total_ns']} | {row['build_summary_ns']} | "
+            f"{row['build_scratch_bytes']} | {row['build_bitset_scratch_bytes']} | "
+            f"{row['build_first_bitset_scratch_bytes']} | {row['build_group_bucket_scratch_bytes']} | "
             f"{row['build_pushed_edges']} | {row['build_unique_edges']} | "
             f"{row['build_duplicate_ratio']} | {row['output_bytes']} |"
         )
@@ -600,11 +629,13 @@ def write_markdown(path: Path, rows: list[dict[str, object]], meta: dict[str, ob
             "",
             "## Best non-bitset profile",
             "",
-            "| profile | wall_s | total_ns | summary_ns | pushed_edges | unique_edges | duplicate_ratio | bytes |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|",
+            "| profile | wall_s | total_ns | summary_ns | scratch_bytes | grouped_bucket_bytes | pushed_edges | unique_edges | duplicate_ratio | bytes |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
             (
                 f"| {best_non_bitset['build_profile']} | {best_non_bitset['wall_seconds']} | "
                 f"{best_non_bitset['build_total_ns']} | {best_non_bitset['build_summary_ns']} | "
+                f"{best_non_bitset['build_scratch_bytes']} | "
+                f"{best_non_bitset['build_group_bucket_scratch_bytes']} | "
                 f"{best_non_bitset['build_pushed_edges']} | {best_non_bitset['build_unique_edges']} | "
                 f"{best_non_bitset['build_duplicate_ratio']} | {best_non_bitset['output_bytes']} |"
             ),
@@ -634,8 +665,12 @@ def write_markdown(path: Path, rows: list[dict[str, object]], meta: dict[str, ob
         "- `combined-lower-only` stores lowercase-normalized edges only and is an experimental permissive skip filter.",
         "- `combined-inline-lower-delta` stores original edges and only adds lowercase edges when they differ.",
         "- `combined-bitset-seen` deduplicates with a reusable 2 MiB u24 presence bitset before sorting.",
+        "- `combined-lower-only-bitset-seen` is lower-only and experimental; it is not semantically equivalent for case-sensitive uppercase queries.",
+        "- `combined-sparse-first-bitset` uses a sparse first-byte to two-byte-suffix bitset. It is baseline-equivalent and allocates 8 KiB only for first bytes touched during the run.",
+        "- `combined-grouped-buckets` uses grouped first-byte arrays: digit, uppercase, lowercase a-z buckets, and ordered spill buckets. It is baseline-equivalent and avoids a full u24 bitset.",
         "- `combined-bucket256` buckets by high byte before sorting and deduping smaller ranges.",
-        "- Only the baseline-equivalent profiles should be used for search-behavior equivalence checks. Case-raw and lower-only are controls with narrower pruning semantics.",
+        "- Only `combined`, `combined-inline-lower-delta`, `combined-bitset-seen`, `combined-sparse-first-bitset`, `combined-grouped-buckets`, `combined-bucket256`, and `combined-radix` are intended to preserve baseline search pruning semantics.",
+        "- `combined-case-raw`, `combined-lower-only`, and `combined-lower-only-bitset-seen` are controls with narrower semantics.",
         "- This phase does not change the on-disk format.",
     ])
 

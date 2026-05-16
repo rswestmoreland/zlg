@@ -147,6 +147,9 @@ pub enum BuildProfileArg {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedLowerOnlyBitsetSeen,
+    CombinedSparseFirstBitset,
+    CombinedGroupedBuckets,
     CombinedBucket256,
 }
 
@@ -163,6 +166,9 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
             BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
             BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
+            BuildProfileArg::CombinedLowerOnlyBitsetSeen => BuildProfile::CombinedLowerOnlyBitsetSeen,
+            BuildProfileArg::CombinedSparseFirstBitset => BuildProfile::CombinedSparseFirstBitset,
+            BuildProfileArg::CombinedGroupedBuckets => BuildProfile::CombinedGroupedBuckets,
             BuildProfileArg::CombinedBucket256 => BuildProfile::CombinedBucket256,
         }
     }
@@ -178,13 +184,13 @@ pub struct CompressArgs {
     #[arg(short = 'l', long, default_value_t = 3)]
     pub level: i32,
 
-    #[arg(long, value_enum, default_value_t = ChunkPolicyArg::HybridProgressiveCap16m)]
+    #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192)]
     pub chunk_policy: ChunkPolicyArg,
 
-    #[arg(long, value_enum, default_value_t = SummaryModeArg::Bitmap)]
+    #[arg(long, value_enum, default_value_t = SummaryModeArg::MeshBigram)]
     pub summary_mode: SummaryModeArg,
 
-    #[arg(long, value_enum, default_value_t = BuildProfileArg::Current)]
+    #[arg(long, value_enum, default_value_t = BuildProfileArg::Combined)]
     pub build_profile: BuildProfileArg,
 
     #[arg(long)]

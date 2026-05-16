@@ -1,10 +1,12 @@
 use crate::chunk::PlainChunk;
 use crate::search::{
     encode_bigram_mesh_summary_bitset_seen_into, encode_bigram_mesh_summary_bucket256_into,
-    encode_bigram_mesh_summary_case_raw_into, encode_bigram_mesh_summary_hash_into,
-    encode_bigram_mesh_summary_inline_lower_delta_into, encode_bigram_mesh_summary_into,
+    encode_bigram_mesh_summary_case_raw_into, encode_bigram_mesh_summary_grouped_buckets_into,
+    encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_inline_lower_delta_into,
+    encode_bigram_mesh_summary_into, encode_bigram_mesh_summary_lower_only_bitset_seen_into,
     encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
-    MeshSummaryBuildStats, SearchSummary, SearchSummaryMode,
+    encode_bigram_mesh_summary_sparse_first_bitset_into, MeshSummaryBuildStats, SearchSummary,
+    SearchSummaryMode,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -195,6 +197,9 @@ pub enum BuildProfile {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedLowerOnlyBitsetSeen,
+    CombinedSparseFirstBitset,
+    CombinedGroupedBuckets,
     CombinedBucket256,
 }
 
@@ -210,6 +215,9 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedLowerOnlyBitsetSeen
+                | Self::CombinedSparseFirstBitset
+                | Self::CombinedGroupedBuckets
                 | Self::CombinedBucket256
         )
     }
@@ -225,6 +233,9 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedLowerOnlyBitsetSeen
+                | Self::CombinedSparseFirstBitset
+                | Self::CombinedGroupedBuckets
                 | Self::CombinedBucket256
         )
     }
@@ -241,6 +252,9 @@ impl BuildProfile {
             Self::CombinedLowerOnly => "combined-lower-only",
             Self::CombinedInlineLowerDelta => "combined-inline-lower-delta",
             Self::CombinedBitsetSeen => "combined-bitset-seen",
+            Self::CombinedLowerOnlyBitsetSeen => "combined-lower-only-bitset-seen",
+            Self::CombinedSparseFirstBitset => "combined-sparse-first-bitset",
+            Self::CombinedGroupedBuckets => "combined-grouped-buckets",
             Self::CombinedBucket256 => "combined-bucket256",
         }
     }
@@ -259,12 +273,23 @@ pub struct BuildStats {
     pub raw_edge_windows: u64,
     pub pushed_edges: u64,
     pub unique_edges: u64,
+    pub bitset_resizes: u64,
+    pub bitset_cleared_edges: u64,
+    pub touched_first_buckets: u64,
+    pub scratch_bytes: u64,
+    pub bitset_scratch_bytes: u64,
+    pub first_bitset_scratch_bytes: u64,
+    pub edge_scratch_capacity_bytes: u64,
+    pub sort_scratch_capacity_bytes: u64,
+    pub lower_scratch_capacity_bytes: u64,
+    pub summary_scratch_capacity_bytes: u64,
+    pub group_bucket_scratch_bytes: u64,
 }
 
 impl BuildStats {
     pub fn to_json(self, profile: BuildProfile) -> String {
         format!(
-            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {}\n}}\n",
+            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {},\n  \"bitset_resizes\": {},\n  \"bitset_cleared_edges\": {},\n  \"touched_first_buckets\": {},\n  \"scratch_bytes\": {},\n  \"bitset_scratch_bytes\": {},\n  \"first_bitset_scratch_bytes\": {},\n  \"edge_scratch_capacity_bytes\": {},\n  \"sort_scratch_capacity_bytes\": {},\n  \"lower_scratch_capacity_bytes\": {},\n  \"summary_scratch_capacity_bytes\": {},\n  \"group_bucket_scratch_bytes\": {}\n}}\n",
             profile.as_str(),
             self.chunks,
             self.summary_ns,
@@ -276,7 +301,18 @@ impl BuildStats {
             self.uncompressed_bytes,
             self.raw_edge_windows,
             self.pushed_edges,
-            self.unique_edges
+            self.unique_edges,
+            self.bitset_resizes,
+            self.bitset_cleared_edges,
+            self.touched_first_buckets,
+            self.scratch_bytes,
+            self.bitset_scratch_bytes,
+            self.first_bitset_scratch_bytes,
+            self.edge_scratch_capacity_bytes,
+            self.sort_scratch_capacity_bytes,
+            self.lower_scratch_capacity_bytes,
+            self.summary_scratch_capacity_bytes,
+            self.group_bucket_scratch_bytes
         )
     }
 }
@@ -293,6 +329,8 @@ pub struct ZlgWriter<W: Write> {
     mesh_edges_scratch: Vec<u32>,
     mesh_sort_scratch: Vec<u32>,
     mesh_bitset_scratch: Vec<u64>,
+    mesh_first_bitsets_scratch: Vec<Vec<u64>>,
+    mesh_group_buckets_scratch: Vec<Vec<u32>>,
     mesh_lower_scratch: Vec<u8>,
     mesh_summary_scratch: Vec<u8>,
     zstd_compressor: Option<zstd::bulk::Compressor<'static>>,
@@ -353,6 +391,8 @@ impl<W: Write> ZlgWriter<W> {
             mesh_edges_scratch: Vec::new(),
             mesh_sort_scratch: Vec::new(),
             mesh_bitset_scratch: Vec::new(),
+            mesh_first_bitsets_scratch: Vec::new(),
+            mesh_group_buckets_scratch: Vec::new(),
             mesh_lower_scratch: Vec::new(),
             mesh_summary_scratch: Vec::new(),
             zstd_compressor,
@@ -406,6 +446,28 @@ impl<W: Write> ZlgWriter<W> {
                 BuildProfile::CombinedBitsetSeen => encode_bigram_mesh_summary_bitset_seen_into(
                     &chunk.data,
                     &mut self.mesh_bitset_scratch,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedLowerOnlyBitsetSeen => {
+                    encode_bigram_mesh_summary_lower_only_bitset_seen_into(
+                        &chunk.data,
+                        &mut self.mesh_bitset_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                }
+                BuildProfile::CombinedSparseFirstBitset => {
+                    encode_bigram_mesh_summary_sparse_first_bitset_into(
+                        &chunk.data,
+                        &mut self.mesh_first_bitsets_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                }
+                BuildProfile::CombinedGroupedBuckets => encode_bigram_mesh_summary_grouped_buckets_into(
+                    &chunk.data,
+                    &mut self.mesh_group_buckets_scratch,
                     &mut self.mesh_edges_scratch,
                     &mut self.mesh_summary_scratch,
                 ),
@@ -504,6 +566,10 @@ impl<W: Write> ZlgWriter<W> {
         self.build_stats.raw_edge_windows += mesh_stats.raw_edge_windows;
         self.build_stats.pushed_edges += mesh_stats.pushed_edges;
         self.build_stats.unique_edges += mesh_stats.unique_edges;
+        self.build_stats.bitset_resizes += mesh_stats.bitset_resizes;
+        self.build_stats.bitset_cleared_edges += mesh_stats.bitset_cleared_edges;
+        self.build_stats.touched_first_buckets += mesh_stats.touched_first_buckets;
+        self.refresh_scratch_stats(mesh_stats);
 
         Ok(())
     }
@@ -539,6 +605,55 @@ impl<W: Write> ZlgWriter<W> {
 
         self.writer.flush()?;
         Ok(self.writer.into_inner())
+    }
+
+    fn refresh_scratch_stats(&mut self, mesh_stats: MeshSummaryBuildStats) {
+        let edge_bytes = self.mesh_edges_scratch.capacity() as u64 * 4;
+        let sort_bytes = self.mesh_sort_scratch.capacity() as u64 * 4;
+        let bitset_bytes = self.mesh_bitset_scratch.len() as u64 * 8;
+        let first_bitset_bytes: u64 = self
+            .mesh_first_bitsets_scratch
+            .iter()
+            .map(|bucket| bucket.len() as u64 * 8)
+            .sum();
+        let group_bucket_bytes: u64 = self
+            .mesh_group_buckets_scratch
+            .iter()
+            .map(|bucket| bucket.capacity() as u64 * 4)
+            .sum();
+        let lower_bytes = self.mesh_lower_scratch.capacity() as u64;
+        let summary_bytes = self.mesh_summary_scratch.capacity() as u64;
+        let total = edge_bytes
+            + sort_bytes
+            + bitset_bytes
+            + first_bitset_bytes
+            + group_bucket_bytes
+            + lower_bytes
+            + summary_bytes;
+
+        self.build_stats.scratch_bytes = self.build_stats.scratch_bytes.max(total);
+        self.build_stats.bitset_scratch_bytes = self
+            .build_stats
+            .bitset_scratch_bytes
+            .max(bitset_bytes.max(mesh_stats.bitset_scratch_bytes));
+        self.build_stats.first_bitset_scratch_bytes = self
+            .build_stats
+            .first_bitset_scratch_bytes
+            .max(first_bitset_bytes.max(mesh_stats.first_bitset_scratch_bytes));
+        self.build_stats.edge_scratch_capacity_bytes =
+            self.build_stats.edge_scratch_capacity_bytes.max(edge_bytes);
+        self.build_stats.sort_scratch_capacity_bytes =
+            self.build_stats.sort_scratch_capacity_bytes.max(sort_bytes);
+        self.build_stats.lower_scratch_capacity_bytes =
+            self.build_stats.lower_scratch_capacity_bytes.max(lower_bytes);
+        self.build_stats.summary_scratch_capacity_bytes = self
+            .build_stats
+            .summary_scratch_capacity_bytes
+            .max(summary_bytes);
+        self.build_stats.group_bucket_scratch_bytes = self
+            .build_stats
+            .group_bucket_scratch_bytes
+            .max(group_bucket_bytes.max(mesh_stats.group_bucket_scratch_bytes));
     }
 
     fn write_chunk_header(&mut self, header: &ChunkHeader) -> Result<()> {
@@ -800,17 +915,44 @@ mod tests {
 
     #[test]
     fn round_trip_single_chunk_in_memory() {
+        assert_round_trip_bytes(b"alpha\nbeta\n", SearchSummaryMode::Bitmap, BuildProfile::Current);
+    }
+
+    #[test]
+    fn round_trip_utf8_payload_bytes_exactly() {
+        assert_round_trip_bytes(
+            b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86 user=\xe3\x82\xab\xe3\x83\x8a msg=\"\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x88\x90\xe5\x8a\x9f\"\n",
+            SearchSummaryMode::MeshBigram,
+            BuildProfile::CombinedGroupedBuckets,
+        );
+    }
+
+    #[test]
+    fn round_trip_binary_payload_bytes_exactly() {
+        assert_round_trip_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00IHDR\x00zlg\x00IDAT\xff\x00END",
+            SearchSummaryMode::MeshBigram,
+            BuildProfile::CombinedSparseFirstBitset,
+        );
+    }
+
+    fn assert_round_trip_bytes(
+        data: &[u8],
+        summary_mode: SearchSummaryMode,
+        build_profile: BuildProfile,
+    ) {
         let chunk = PlainChunk {
             index: 0,
             first_line_number: 1,
-            line_count: 2,
-            data: b"alpha\nbeta\n".to_vec(),
+            line_count: 1,
+            data: data.to_vec(),
             flags: 1,
         };
 
         let mut out = Vec::new();
         {
-            let mut writer = ZlgWriter::new(&mut out, 1, 1, SearchSummaryMode::Bitmap).unwrap();
+            let mut writer =
+                ZlgWriter::new_with_profile(&mut out, 17, 1, summary_mode, build_profile).unwrap();
             writer.write_chunk(&chunk).unwrap();
             writer.finish().unwrap();
         }
@@ -819,7 +961,7 @@ mod tests {
         let raw = reader.next_raw_chunk().unwrap().unwrap();
         let decoded = raw.decode().unwrap();
 
-        assert_eq!(decoded.data, b"alpha\nbeta\n");
+        assert_eq!(decoded.data, data);
         assert!(reader.next_raw_chunk().unwrap().is_none());
     }
 }

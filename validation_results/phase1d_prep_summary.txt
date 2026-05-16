@@ -1,0 +1,26 @@
+zlg Phase 1d prep summary
+
+Prepared in ChatGPT without Cargo/Rust toolchain access. Rust validation must be run in Codex.
+
+Scope:
+- Kept ZBM1 v2 on-disk format unchanged.
+- Changed compress defaults to fixed-lines8192 + mesh-bigram + combined to match the active benchmark baseline.
+- Added build profiles:
+  - combined-lower-only-bitset-seen
+  - combined-sparse-first-bitset
+  - combined-grouped-buckets
+- Added scratch/memory-oriented build stats fields for bitset, sparse first-byte bitset, and grouped bucket comparison.
+- Added UTF-8 byte-oriented mesh summary and round-trip tests using escaped byte literals.
+- Added binary-like byte-oriented mesh summary and round-trip tests.
+- Added Phase 1d benchmark tool, one-command validation script, docs, and Codex prompt.
+- Updated README and Phase 1c wording so combined-bitset-seen is not treated as locked and case-raw/lower-only controls are not described as baseline-equivalent.
+
+Validation performed in this environment:
+- python3 -m py_compile for updated benchmark tools: pass
+- bash -n for phase1d validation script: pass
+- ASCII scan after removing __pycache__: pass
+- Generated artifact hygiene check by file pattern: no target/.zlg/.gz/.zst/.pyc/__pycache__ artifacts found
+- Cargo/rustfmt/clippy/build/test: not run, toolchain unavailable
+
+Required Codex validation:
+- bash scripts/phase1d_builder_fairness_once.sh

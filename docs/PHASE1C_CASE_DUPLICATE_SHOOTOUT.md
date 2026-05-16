@@ -35,18 +35,18 @@ in the chunk, also stores edges from a lowercased chunk copy.
 Stores only exact-byte edges from the original chunk. This is a speed and size
 control for measuring the cost of case support.
 
-This profile is not intended as the default because it may lose pruning power
-for ignore-case searches.
+This profile is not intended as the default because it can false-reject
+ignore-case searches when the query literal differs only by ASCII case.
 
 ### combined-lower-only
 
 Stores only ASCII-lowercase-normalized edges. This measures whether a single
 normalized edge set is faster and smaller.
 
-This profile is intentionally experimental. Because the summary is only a skip
-filter and decoded chunks are verified by the real matcher, it is useful for
-measurement, but it should not become default until query-side semantics are
-fully designed.
+This profile is intentionally experimental. It is useful for measurement, but it can false-reject case-sensitive
+uppercase queries because the summary no longer contains original uppercase
+edges. It must not become default until query-side semantics are explicitly
+designed.
 
 ### combined-inline-lower-delta
 

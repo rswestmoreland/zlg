@@ -8,6 +8,7 @@ use crate::search::{
     encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
     encode_bigram_mesh_summary_rdst_into, encode_bigram_mesh_summary_rdxsort_into,
     encode_bigram_mesh_summary_sparse_first_bitset_into,
+    encode_bigram_mesh_summary_bitset_paged_seen_into,
     encode_bigram_mesh_summary_trie_pair_bitset_into, MeshSummaryBuildStats, SearchSummary,
     SearchSummaryMode,
 };
@@ -203,6 +204,7 @@ pub enum BuildProfile {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetPagedSeen,
     CombinedLowerOnlyBitsetSeen,
     CombinedSparseFirstBitset,
     CombinedTriePairBitset,
@@ -225,6 +227,7 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedBitsetPagedSeen
                 | Self::CombinedLowerOnlyBitsetSeen
                 | Self::CombinedSparseFirstBitset
                 | Self::CombinedTriePairBitset
@@ -247,6 +250,7 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedBitsetPagedSeen
                 | Self::CombinedLowerOnlyBitsetSeen
                 | Self::CombinedSparseFirstBitset
                 | Self::CombinedTriePairBitset
@@ -270,6 +274,7 @@ impl BuildProfile {
             Self::CombinedLowerOnly => "combined-lower-only",
             Self::CombinedInlineLowerDelta => "combined-inline-lower-delta",
             Self::CombinedBitsetSeen => "combined-bitset-seen",
+            Self::CombinedBitsetPagedSeen => "combined-bitset-paged-seen",
             Self::CombinedLowerOnlyBitsetSeen => "combined-lower-only-bitset-seen",
             Self::CombinedSparseFirstBitset => "combined-sparse-first-bitset",
             Self::CombinedTriePairBitset => "combined-trie-pair-bitset",
@@ -494,6 +499,14 @@ impl<W: Write> ZlgWriter<W> {
                     &mut self.mesh_edges_scratch,
                     &mut self.mesh_summary_scratch,
                 ),
+                BuildProfile::CombinedBitsetPagedSeen => {
+                    encode_bigram_mesh_summary_bitset_paged_seen_into(
+                        &chunk.data,
+                        &mut self.mesh_first_bitsets_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                },
                 BuildProfile::CombinedLowerOnlyBitsetSeen => {
                     encode_bigram_mesh_summary_lower_only_bitset_seen_into(
                         &chunk.data,

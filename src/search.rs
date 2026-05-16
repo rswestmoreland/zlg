@@ -649,6 +649,78 @@ pub fn encode_bigram_mesh_summary_bitset_seen_into(
     stats
 }
 
+pub fn encode_bigram_mesh_summary_bitset_paged_seen_into(
+    bytes: &[u8],
+    first_bitsets: &mut Vec<Vec<u64>>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    if first_bitsets.len() < 256 {
+        first_bitsets.resize_with(256, Vec::new);
+    }
+
+    let mut resized = 0u64;
+    for bucket in first_bitsets.iter_mut() {
+        if bucket.is_empty() {
+            bucket.resize(FIRST_BYTE_SUFFIX_WORDS, 0);
+            resized += 1;
+        }
+    }
+
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2).saturating_mul(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        bitset_resizes: resized,
+        bitset_scratch_bytes: first_bitset_scratch_bytes(first_bitsets),
+        first_bitset_scratch_bytes: first_bitset_scratch_bytes(first_bitsets),
+        ..MeshSummaryBuildStats::default()
+    };
+    let mut touched_first = [false; 256];
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            push_edge_if_unseen_first_bitset(
+                original,
+                first_bitsets,
+                &mut touched_first,
+                edges,
+                &mut stats,
+            );
+
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            if lowered != original {
+                push_edge_if_unseen_first_bitset(
+                    lowered,
+                    first_bitsets,
+                    &mut touched_first,
+                    edges,
+                    &mut stats,
+                );
+            }
+        }
+    }
+
+    for edge in edges.iter().copied() {
+        clear_first_bitset_edge(edge, first_bitsets);
+        stats.bitset_cleared_edges += 1;
+    }
+
+    edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    stats.touched_first_buckets = touched_first.iter().filter(|value| **value).count() as u64;
+    let scratch_bytes = first_bitset_scratch_bytes(first_bitsets);
+    stats.bitset_scratch_bytes = scratch_bytes;
+    stats.first_bitset_scratch_bytes = scratch_bytes;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
 pub fn encode_bigram_mesh_summary_lower_only_bitset_seen_into(
     bytes: &[u8],
     bitset: &mut Vec<u64>,
@@ -841,10 +913,10 @@ pub fn encode_bigram_mesh_summary_rdst_into(
     lower: &mut Vec<u8>,
     out: &mut Vec<u8>,
 ) -> MeshSummaryBuildStats {
-    use rdst::RadixSort;
-
     let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
-    edges.radix_sort_unstable();
+    // The external rdst experiment was dropped after Phase 1f. Keep this legacy
+    // profile parseable without pulling the crate into normal builds.
+    edges.sort_unstable();
     edges.dedup();
     stats.unique_edges = edges.len() as u64;
     encode_bigram_mesh_edges_into(edges, out);
@@ -2186,6 +2258,16 @@ mod tests {
             &mut out_sparse,
         );
         assert_eq!(out_sparse, out_combined);
+
+        let mut paged_bitsets = Vec::new();
+        let mut out_paged = Vec::new();
+        encode_bigram_mesh_summary_bitset_paged_seen_into(
+            data,
+            &mut paged_bitsets,
+            &mut edges,
+            &mut out_paged,
+        );
+        assert_eq!(out_paged, out_combined);
 
         let mut buckets = Vec::new();
         let mut out_grouped = Vec::new();

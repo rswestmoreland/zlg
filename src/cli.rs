@@ -150,6 +150,7 @@ pub enum BuildProfileArg {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetPagedSeen,
     CombinedLowerOnlyBitsetSeen,
     CombinedSparseFirstBitset,
     CombinedTriePairBitset,
@@ -173,6 +174,7 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
             BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
             BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
+            BuildProfileArg::CombinedBitsetPagedSeen => BuildProfile::CombinedBitsetPagedSeen,
             BuildProfileArg::CombinedLowerOnlyBitsetSeen => {
                 BuildProfile::CombinedLowerOnlyBitsetSeen
             }

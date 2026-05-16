@@ -46,16 +46,16 @@ fixed-lines8192
 + --head / --max-count early stop
 ```
 
-`combined-bitset-seen` was the fastest build profile in the latest Phase 1c-fix benchmark, but it is experimental and not locked as the default. It uses a reusable 2 MiB u24 presence table. Phase 1d adds fairness and memory accounting plus lower-memory alternatives.
+Phase 1f narrowed the production builder candidates. `combined-bitset-seen` is the leading build-speed candidate, while `combined-sparse-first-bitset` remains the second candidate for lower-memory comparison. Phase 1g focuses on size overhead versus gzip and adds `combined-bitset-paged-seen`, a full-u24 paged bitset variant that performs the same dedupe-before-push function as `combined-bitset-seen` but stores the bitset as 256 first-byte pages.
 
-Active build-profile controls include:
+Current carry-forward build profiles are:
 
-- `combined`: safe semantic baseline using reusable zstd bulk compression and mesh scratch buffers.
-- `combined-inline-lower-delta`: baseline-equivalent, avoids a full lowercase chunk copy.
-- `combined-bitset-seen`: baseline-equivalent, full 2 MiB u24 dedup table.
-- `combined-sparse-first-bitset`: baseline-equivalent, sparse first-byte to two-byte-suffix bitsets.
-- `combined-grouped-buckets`: baseline-equivalent, grouped first-byte arrays for sort/dedup.
-- `combined-case-raw`, `combined-lower-only`, and `combined-lower-only-bitset-seen`: experimental controls with narrower search-pruning semantics.
+- `combined-bitset-seen`: leading candidate, baseline-equivalent, full contiguous 2 MiB u24 dedup table.
+- `combined-sparse-first-bitset`: second candidate, baseline-equivalent, sparse first-byte to two-byte-suffix bitsets.
+- `combined-bitset-paged-seen`: experimental Phase 1g variant, baseline-equivalent, full 2 MiB u24 space stored as first-byte pages.
+- `combined`: safe semantic baseline and reference builder.
+
+Dropped external sort experiments no longer require `rdxsort` or `rdst` dependencies. Legacy build-profile names may remain parseable for now, but they are not active production candidates.
 
 ## Success criteria
 

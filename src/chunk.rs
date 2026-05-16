@@ -36,6 +36,18 @@ impl ChunkPolicy {
                 byte_cap: None,
             } => 18,
             ChunkPolicy::FixedLines {
+                lines: 8192,
+                byte_cap: Some(bytes),
+            } if bytes == 4 * 1024 * 1024 => 19,
+            ChunkPolicy::FixedLines {
+                lines: 8192,
+                byte_cap: Some(bytes),
+            } if bytes == 8 * 1024 * 1024 => 20,
+            ChunkPolicy::FixedLines {
+                lines: 8192,
+                byte_cap: Some(bytes),
+            } if bytes == 16 * 1024 * 1024 => 21,
+            ChunkPolicy::FixedLines {
                 lines: 65_536,
                 byte_cap: None,
             } => 1,

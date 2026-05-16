@@ -47,6 +47,9 @@ pub enum ChunkPolicyArg {
     HybridFixed64kCap8m,
     HybridFixed64kCap16m,
     HybridFixed64kCap32m,
+    FixedLines8192Cap4m,
+    FixedLines8192Cap8m,
+    FixedLines8192Cap16m,
 }
 
 impl From<ChunkPolicyArg> for ChunkPolicy {
@@ -112,6 +115,18 @@ impl From<ChunkPolicyArg> for ChunkPolicy {
                 lines: 65_536,
                 byte_cap: Some(32 * 1024 * 1024),
             },
+            ChunkPolicyArg::FixedLines8192Cap4m => ChunkPolicy::FixedLines {
+                lines: 8_192,
+                byte_cap: Some(4 * 1024 * 1024),
+            },
+            ChunkPolicyArg::FixedLines8192Cap8m => ChunkPolicy::FixedLines {
+                lines: 8_192,
+                byte_cap: Some(8 * 1024 * 1024),
+            },
+            ChunkPolicyArg::FixedLines8192Cap16m => ChunkPolicy::FixedLines {
+                lines: 8_192,
+                byte_cap: Some(16 * 1024 * 1024),
+            },
         }
     }
 }
@@ -150,6 +165,7 @@ pub enum BuildProfileArg {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetSeenStreamZstd,
     CombinedBitsetPagedSeen,
     CombinedLowerOnlyBitsetSeen,
     CombinedSparseFirstBitset,
@@ -174,6 +190,9 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
             BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
             BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
+            BuildProfileArg::CombinedBitsetSeenStreamZstd => {
+                BuildProfile::CombinedBitsetSeenStreamZstd
+            }
             BuildProfileArg::CombinedBitsetPagedSeen => BuildProfile::CombinedBitsetPagedSeen,
             BuildProfileArg::CombinedLowerOnlyBitsetSeen => {
                 BuildProfile::CombinedLowerOnlyBitsetSeen

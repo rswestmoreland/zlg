@@ -1,0 +1,15 @@
+Phase 1j prep checkpoint created.
+
+Scope:
+- Keep selected production stack unchanged.
+- Add memory/chunk-buffer diagnostics.
+- Compare gzip -6 and gzip -9.
+- Compare zlg zstd levels 3, 6, and 9.
+- Add diagnostic stream-per-chunk zstd profile.
+- Add fixed-lines8192 byte-cap policies for 4 MiB, 8 MiB, and 16 MiB.
+- Add build stats for maximum per-chunk uncompressed, compressed, and summary bytes.
+
+Local prep checks in ChatGPT:
+- Python syntax check passed for the Phase 1j benchmark script.
+- Bash syntax check passed for the Phase 1j one-shot script.
+- Rust toolchain was not available in ChatGPT, so Codex must run cargo validation.

@@ -204,6 +204,7 @@ pub enum BuildProfile {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetSeenStreamZstd,
     CombinedBitsetPagedSeen,
     CombinedLowerOnlyBitsetSeen,
     CombinedSparseFirstBitset,
@@ -227,6 +228,7 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedBitsetSeenStreamZstd
                 | Self::CombinedBitsetPagedSeen
                 | Self::CombinedLowerOnlyBitsetSeen
                 | Self::CombinedSparseFirstBitset
@@ -274,6 +276,7 @@ impl BuildProfile {
             Self::CombinedLowerOnly => "combined-lower-only",
             Self::CombinedInlineLowerDelta => "combined-inline-lower-delta",
             Self::CombinedBitsetSeen => "combined-bitset-seen",
+            Self::CombinedBitsetSeenStreamZstd => "combined-bitset-seen-stream-zstd",
             Self::CombinedBitsetPagedSeen => "combined-bitset-paged-seen",
             Self::CombinedLowerOnlyBitsetSeen => "combined-lower-only-bitset-seen",
             Self::CombinedSparseFirstBitset => "combined-sparse-first-bitset",
@@ -308,12 +311,15 @@ pub struct BuildStats {
     pub lower_scratch_capacity_bytes: u64,
     pub summary_scratch_capacity_bytes: u64,
     pub group_bucket_scratch_bytes: u64,
+    pub max_chunk_uncompressed_bytes: u64,
+    pub max_chunk_compressed_bytes: u64,
+    pub max_chunk_summary_bytes: u64,
 }
 
 impl BuildStats {
     pub fn to_json(self, profile: BuildProfile) -> String {
         format!(
-            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {},\n  \"bitset_resizes\": {},\n  \"bitset_cleared_edges\": {},\n  \"touched_first_buckets\": {},\n  \"scratch_bytes\": {},\n  \"bitset_scratch_bytes\": {},\n  \"first_bitset_scratch_bytes\": {},\n  \"edge_scratch_capacity_bytes\": {},\n  \"sort_scratch_capacity_bytes\": {},\n  \"lower_scratch_capacity_bytes\": {},\n  \"summary_scratch_capacity_bytes\": {},\n  \"group_bucket_scratch_bytes\": {}\n}}\n",
+            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {},\n  \"bitset_resizes\": {},\n  \"bitset_cleared_edges\": {},\n  \"touched_first_buckets\": {},\n  \"scratch_bytes\": {},\n  \"bitset_scratch_bytes\": {},\n  \"first_bitset_scratch_bytes\": {},\n  \"edge_scratch_capacity_bytes\": {},\n  \"sort_scratch_capacity_bytes\": {},\n  \"lower_scratch_capacity_bytes\": {},\n  \"summary_scratch_capacity_bytes\": {},\n  \"group_bucket_scratch_bytes\": {},\n  \"max_chunk_uncompressed_bytes\": {},\n  \"max_chunk_compressed_bytes\": {},\n  \"max_chunk_summary_bytes\": {}\n}}\n",
             profile.as_str(),
             self.chunks,
             self.summary_ns,
@@ -336,7 +342,10 @@ impl BuildStats {
             self.sort_scratch_capacity_bytes,
             self.lower_scratch_capacity_bytes,
             self.summary_scratch_capacity_bytes,
-            self.group_bucket_scratch_bytes
+            self.group_bucket_scratch_bytes,
+            self.max_chunk_uncompressed_bytes,
+            self.max_chunk_compressed_bytes,
+            self.max_chunk_summary_bytes
         )
     }
 }
@@ -493,12 +502,14 @@ impl<W: Write> ZlgWriter<W> {
                         &mut self.mesh_summary_scratch,
                     )
                 }
-                BuildProfile::CombinedBitsetSeen => encode_bigram_mesh_summary_bitset_seen_into(
-                    &chunk.data,
-                    &mut self.mesh_bitset_scratch,
-                    &mut self.mesh_edges_scratch,
-                    &mut self.mesh_summary_scratch,
-                ),
+                BuildProfile::CombinedBitsetSeen | BuildProfile::CombinedBitsetSeenStreamZstd => {
+                    encode_bigram_mesh_summary_bitset_seen_into(
+                        &chunk.data,
+                        &mut self.mesh_bitset_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                },
                 BuildProfile::CombinedBitsetPagedSeen => {
                     encode_bigram_mesh_summary_bitset_paged_seen_into(
                         &chunk.data,
@@ -633,6 +644,18 @@ impl<W: Write> ZlgWriter<W> {
         self.build_stats.summary_bytes += header.summary_len as u64;
         self.build_stats.compressed_bytes += header.compressed_len;
         self.build_stats.uncompressed_bytes += header.uncompressed_len;
+        self.build_stats.max_chunk_uncompressed_bytes = self
+            .build_stats
+            .max_chunk_uncompressed_bytes
+            .max(header.uncompressed_len);
+        self.build_stats.max_chunk_compressed_bytes = self
+            .build_stats
+            .max_chunk_compressed_bytes
+            .max(header.compressed_len);
+        self.build_stats.max_chunk_summary_bytes = self
+            .build_stats
+            .max_chunk_summary_bytes
+            .max(header.summary_len as u64);
         self.build_stats.raw_edge_windows += mesh_stats.raw_edge_windows;
         self.build_stats.pushed_edges += mesh_stats.pushed_edges;
         self.build_stats.unique_edges += mesh_stats.unique_edges;

@@ -1,0 +1,211 @@
++ cargo fmt --check
++ cargo check
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded arbitrary-chunks v0.4.1
+  Downloaded partition v0.1.2
+  Downloaded rdxsort v0.3.0
+  Downloaded rdst v0.20.14
+   Compiling libc v0.2.186
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling pkg-config v0.3.33
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling jobserver v0.1.34
+   Compiling cc v1.2.62
+   Compiling syn v2.0.117
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+    Checking utf8parse v0.2.2
+    Checking anstyle-parse v1.0.0
+   Compiling pcre2-sys v0.2.10
+   Compiling zstd-safe v7.2.4
+    Checking anstyle v1.0.14
+    Checking memchr v2.8.0
+    Checking anstyle-query v1.1.5
+    Checking colorchoice v1.0.5
+    Checking is_terminal_polyfill v1.70.2
+    Checking anstream v1.0.0
+    Checking aho-corasick v1.1.4
+   Compiling anyhow v1.0.102
+    Checking strsim v0.11.1
+   Compiling heck v0.5.0
+   Compiling crc32fast v1.5.0
+    Checking regex-syntax v0.8.10
+   Compiling thiserror v2.0.18
+    Checking clap_lex v1.1.0
+    Checking clap_builder v4.6.0
+    Checking regex-automata v0.4.14
+   Compiling clap_derive v4.6.1
+   Compiling thiserror-impl v2.0.18
+    Checking partition v0.1.2
+    Checking arbitrary-chunks v0.4.1
+    Checking cfg-if v1.0.4
+    Checking log v0.4.29
+    Checking pcre2 v0.2.11
+    Checking rdst v0.20.14
+    Checking clap v4.6.1
+    Checking zstd v0.13.3
+    Checking regex v1.12.3
+    Checking rdxsort v0.3.0
+    Checking zlg v0.1.0-phase0 (/workspace/zlg)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 11s
++ cargo test
+   Compiling libc v0.2.186
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling cfg-if v1.0.4
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling getrandom v0.4.2
+   Compiling memchr v2.8.0
+   Compiling jobserver v0.1.34
+   Compiling cc v1.2.62
+   Compiling anstyle-query v1.1.5
+   Compiling rustix v1.1.4
+   Compiling anstyle v1.0.14
+   Compiling anstream v1.0.0
+   Compiling aho-corasick v1.1.4
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling pcre2-sys v0.2.10
+   Compiling bitflags v2.11.1
+   Compiling clap_lex v1.1.0
+   Compiling regex-syntax v0.8.10
+   Compiling zstd-safe v7.2.4
+   Compiling linux-raw-sys v0.12.1
+   Compiling strsim v0.11.1
+   Compiling clap_builder v4.6.0
+   Compiling regex-automata v0.4.14
+   Compiling partition v0.1.2
+   Compiling fastrand v2.4.1
+   Compiling arbitrary-chunks v0.4.1
+   Compiling log v0.4.29
+   Compiling once_cell v1.21.4
+   Compiling tempfile v3.27.0
+   Compiling pcre2 v0.2.11
+   Compiling rdst v0.20.14
+   Compiling thiserror v2.0.18
+   Compiling regex v1.12.3
+   Compiling crc32fast v1.5.0
+   Compiling zstd v0.13.3
+   Compiling clap v4.6.1
+   Compiling anyhow v1.0.102
+   Compiling rdxsort v0.3.0
+   Compiling zlg v0.1.0-phase0 (/workspace/zlg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 11s
+     Running unittests src/main.rs (target/debug/deps/zlg-8424f5135bba30a2)
+
+running 16 tests
+test chunk::tests::progressive_line_limits_ramp_to_64k ... ok
+test format::tests::round_trip_single_chunk_in_memory ... ok
+test format::tests::round_trip_binary_payload_bytes_exactly ... ok
+test search::tests::fixed_find_all_preserves_original_case ... ok
+test format::tests::round_trip_utf8_payload_bytes_exactly ... ok
+test search::tests::inline_sparse_and_grouped_profiles_match_combined_summary ... ok
+test search::tests::mesh_summary_handles_binary_bytes ... ok
+test search::tests::mesh_summary_handles_utf8_as_bytes ... ok
+test search::tests::path_window_summary_filters_long_literals ... ok
+test search::tests::positive_lookbehind_unescapes_literal_selector ... ok
+test search::tests::regex_plan_extracts_noncapturing_alternation_prefix ... ok
+test search::tests::regex_plan_extracts_required_literal ... ok
+test search::tests::regex_plan_extracts_top_level_alternation ... ok
+test search::tests::summary_detects_literal_bigrams ... ok
+test search::tests::summary_supports_ascii_ignore_case ... ok
+test search::tests::lower_only_bitset_matches_lower_only_summary ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
++ cargo clippy --all-targets --all-features -- -D warnings
+    Checking linux-raw-sys v0.12.1
+    Checking bitflags v2.11.1
+    Checking getrandom v0.4.2
+    Checking fastrand v2.4.1
+    Checking once_cell v1.21.4
+    Checking rustix v1.1.4
+    Checking zlg v0.1.0-phase0 (/workspace/zlg)
+    Checking tempfile v3.27.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.02s
++ cargo build --release
+   Compiling libc v0.2.186
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling pkg-config v0.3.33
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling jobserver v0.1.34
+   Compiling quote v1.0.45
+   Compiling cc v1.2.62
+   Compiling syn v2.0.117
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling pcre2-sys v0.2.10
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling zstd-safe v7.2.4
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling memchr v2.8.0
+   Compiling aho-corasick v1.1.4
+   Compiling anstream v1.0.0
+   Compiling anyhow v1.0.102
+   Compiling thiserror v2.0.18
+   Compiling strsim v0.11.1
+   Compiling crc32fast v1.5.0
+   Compiling clap_lex v1.1.0
+   Compiling heck v0.5.0
+   Compiling regex-syntax v0.8.10
+   Compiling regex-automata v0.4.14
+   Compiling clap_derive v4.6.1
+   Compiling clap_builder v4.6.0
+   Compiling thiserror-impl v2.0.18
+   Compiling cfg-if v1.0.4
+   Compiling log v0.4.29
+   Compiling arbitrary-chunks v0.4.1
+   Compiling partition v0.1.2
+   Compiling rdst v0.20.14
+   Compiling pcre2 v0.2.11
+   Compiling clap v4.6.1
+   Compiling regex v1.12.3
+   Compiling zstd v0.13.3
+   Compiling rdxsort v0.3.0
+   Compiling zlg v0.1.0-phase0 (/workspace/zlg)
+    Finished `release` profile [optimized] target(s) in 2m 51s
++ bash scripts/phase0h_smoke.sh
+phase0h smoke: pass
++ bash scripts/phase0h_correctness_check.sh
+phase0h correctness ok: regex_alternation
+phase0h correctness ok: fixed_string
+phase0h correctness ok: only_matching
+phase0h correctness ok: line_numbers
+phase0h correctness ok: ignore_case
+phase0h correctness ok: count
+phase0h correctness ok: invert_match
+phase0h correctness ok: fancy_lookbehind_only_matching
+phase0h correctness: pass
++ bash scripts/phase0i_policy_matrix_check.sh
+phase0i policy matrix ok: fixed-lines64k
+phase0i policy matrix ok: progressive-lines
+phase0i policy matrix ok: byte1m
+phase0i policy matrix ok: byte4m
+phase0i policy matrix ok: byte8m
+phase0i policy matrix ok: hybrid-progressive-cap4m
+phase0i policy matrix ok: hybrid-progressive-cap8m
+phase0i policy matrix ok: hybrid-progressive-cap16m
+phase0i policy matrix ok: hybrid-progressive-cap32m
+phase0i policy matrix ok: hybrid-fixed64k-cap8m
+phase0i policy matrix ok: hybrid-fixed64k-cap16m
+phase0i policy matrix ok: hybrid-fixed64k-cap32m
+phase0i policy matrix: pass
++ bash scripts/phase0m_selector_smoke.sh
+phase0m selector smoke: pass
++ python3 tools/phase1f_final_builder_bakeoff_bench.py --binary target/release/zlg --lines 80000 --seed 4242 --repeats 3 --corpora high_dup,high_cardinality,unicode,binaryish,realistic_mixed_log,long_line_log,short_line_log --output validation_results/phase1f_final_builder_bakeoff.md --csv validation_results/phase1f_final_builder_bakeoff.csv
+wrote /workspace/zlg/validation_results/phase1f_final_builder_bakeoff.md
+wrote /workspace/zlg/validation_results/phase1f_final_builder_bakeoff.csv
++ bash scripts/phase0k_csv_commit_guard.sh validation_results/phase1f_final_builder_bakeoff.csv
+phase0k guard: CSV exists and is not ignored, status: ?? validation_results/phase1f_final_builder_bakeoff.csv
++ bash scripts/phase0i_artifact_hygiene_check.sh
+phase0i artifact hygiene: pass
+phase1f RSS/CPU check: pass
+phase1f final builder bakeoff once: pass

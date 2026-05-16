@@ -2,10 +2,13 @@ use crate::chunk::PlainChunk;
 use crate::search::{
     encode_bigram_mesh_summary_bitset_seen_into, encode_bigram_mesh_summary_bucket256_into,
     encode_bigram_mesh_summary_case_raw_into, encode_bigram_mesh_summary_grouped_buckets_into,
-    encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_inline_lower_delta_into,
+    encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_identity_hash_into,
+    encode_bigram_mesh_summary_inline_lower_delta_into,
     encode_bigram_mesh_summary_into, encode_bigram_mesh_summary_lower_only_bitset_seen_into,
     encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
-    encode_bigram_mesh_summary_sparse_first_bitset_into, MeshSummaryBuildStats, SearchSummary,
+    encode_bigram_mesh_summary_rdst_into, encode_bigram_mesh_summary_rdxsort_into,
+    encode_bigram_mesh_summary_sparse_first_bitset_into,
+    encode_bigram_mesh_summary_trie_pair_bitset_into, MeshSummaryBuildStats, SearchSummary,
     SearchSummaryMode,
 };
 
@@ -193,12 +196,16 @@ pub enum BuildProfile {
     Combined,
     CombinedRadix,
     CombinedHash,
+    CombinedIdentityHash,
+    CombinedRdxsort,
+    CombinedRdst,
     CombinedCaseRaw,
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
     CombinedLowerOnlyBitsetSeen,
     CombinedSparseFirstBitset,
+    CombinedTriePairBitset,
     CombinedGroupedBuckets,
     CombinedBucket256,
 }
@@ -211,12 +218,16 @@ impl BuildProfile {
                 | Self::Combined
                 | Self::CombinedRadix
                 | Self::CombinedHash
+                | Self::CombinedIdentityHash
+                | Self::CombinedRdxsort
+                | Self::CombinedRdst
                 | Self::CombinedCaseRaw
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
                 | Self::CombinedLowerOnlyBitsetSeen
                 | Self::CombinedSparseFirstBitset
+                | Self::CombinedTriePairBitset
                 | Self::CombinedGroupedBuckets
                 | Self::CombinedBucket256
         )
@@ -229,12 +240,16 @@ impl BuildProfile {
                 | Self::Combined
                 | Self::CombinedRadix
                 | Self::CombinedHash
+                | Self::CombinedIdentityHash
+                | Self::CombinedRdxsort
+                | Self::CombinedRdst
                 | Self::CombinedCaseRaw
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
                 | Self::CombinedLowerOnlyBitsetSeen
                 | Self::CombinedSparseFirstBitset
+                | Self::CombinedTriePairBitset
                 | Self::CombinedGroupedBuckets
                 | Self::CombinedBucket256
         )
@@ -248,12 +263,16 @@ impl BuildProfile {
             Self::Combined => "combined",
             Self::CombinedRadix => "combined-radix",
             Self::CombinedHash => "combined-hash",
+            Self::CombinedIdentityHash => "combined-identity-hash",
+            Self::CombinedRdxsort => "combined-rdxsort",
+            Self::CombinedRdst => "combined-rdst",
             Self::CombinedCaseRaw => "combined-case-raw",
             Self::CombinedLowerOnly => "combined-lower-only",
             Self::CombinedInlineLowerDelta => "combined-inline-lower-delta",
             Self::CombinedBitsetSeen => "combined-bitset-seen",
             Self::CombinedLowerOnlyBitsetSeen => "combined-lower-only-bitset-seen",
             Self::CombinedSparseFirstBitset => "combined-sparse-first-bitset",
+            Self::CombinedTriePairBitset => "combined-trie-pair-bitset",
             Self::CombinedGroupedBuckets => "combined-grouped-buckets",
             Self::CombinedBucket256 => "combined-bucket256",
         }
@@ -330,6 +349,9 @@ pub struct ZlgWriter<W: Write> {
     mesh_sort_scratch: Vec<u32>,
     mesh_bitset_scratch: Vec<u64>,
     mesh_first_bitsets_scratch: Vec<Vec<u64>>,
+    mesh_trie_pair_index_scratch: Vec<[u16; 256]>,
+    mesh_trie_pair_bitsets_scratch: Vec<Vec<[u64; 4]>>,
+    mesh_trie_touched_pairs_scratch: Vec<(u8, u8)>,
     mesh_group_buckets_scratch: Vec<Vec<u32>>,
     mesh_lower_scratch: Vec<u8>,
     mesh_summary_scratch: Vec<u8>,
@@ -392,6 +414,9 @@ impl<W: Write> ZlgWriter<W> {
             mesh_sort_scratch: Vec::new(),
             mesh_bitset_scratch: Vec::new(),
             mesh_first_bitsets_scratch: Vec::new(),
+            mesh_trie_pair_index_scratch: Vec::new(),
+            mesh_trie_pair_bitsets_scratch: Vec::new(),
+            mesh_trie_touched_pairs_scratch: Vec::new(),
             mesh_group_buckets_scratch: Vec::new(),
             mesh_lower_scratch: Vec::new(),
             mesh_summary_scratch: Vec::new(),
@@ -421,6 +446,24 @@ impl<W: Write> ZlgWriter<W> {
                     &mut self.mesh_summary_scratch,
                 ),
                 BuildProfile::CombinedHash => encode_bigram_mesh_summary_hash_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedIdentityHash => encode_bigram_mesh_summary_identity_hash_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedRdxsort => encode_bigram_mesh_summary_rdxsort_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedRdst => encode_bigram_mesh_summary_rdst_into(
                     &chunk.data,
                     &mut self.mesh_edges_scratch,
                     &mut self.mesh_lower_scratch,
@@ -461,6 +504,16 @@ impl<W: Write> ZlgWriter<W> {
                     encode_bigram_mesh_summary_sparse_first_bitset_into(
                         &chunk.data,
                         &mut self.mesh_first_bitsets_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                }
+                BuildProfile::CombinedTriePairBitset => {
+                    encode_bigram_mesh_summary_trie_pair_bitset_into(
+                        &chunk.data,
+                        &mut self.mesh_trie_pair_index_scratch,
+                        &mut self.mesh_trie_pair_bitsets_scratch,
+                        &mut self.mesh_trie_touched_pairs_scratch,
                         &mut self.mesh_edges_scratch,
                         &mut self.mesh_summary_scratch,
                     )
@@ -613,11 +666,18 @@ impl<W: Write> ZlgWriter<W> {
         let edge_bytes = self.mesh_edges_scratch.capacity() as u64 * 4;
         let sort_bytes = self.mesh_sort_scratch.capacity() as u64 * 4;
         let bitset_bytes = self.mesh_bitset_scratch.len() as u64 * 8;
-        let first_bitset_bytes: u64 = self
+        let sparse_first_bitset_bytes: u64 = self
             .mesh_first_bitsets_scratch
             .iter()
             .map(|bucket| bucket.len() as u64 * 8)
             .sum();
+        let trie_pair_index_bytes = self.mesh_trie_pair_index_scratch.len() as u64 * 256 * 2;
+        let trie_pair_bitset_bytes: u64 = self
+            .mesh_trie_pair_bitsets_scratch
+            .iter()
+            .map(|bucket| bucket.capacity() as u64 * 32)
+            .sum();
+        let first_bitset_bytes = sparse_first_bitset_bytes + trie_pair_index_bytes + trie_pair_bitset_bytes;
         let group_bucket_bytes: u64 = self
             .mesh_group_buckets_scratch
             .iter()

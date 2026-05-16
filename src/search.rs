@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use std::hash::{BuildHasherDefault, Hasher};
 use memchr::memmem::{self, Finder};
 use pcre2::bytes::RegexBuilder as Pcre2RegexBuilder;
 use regex::bytes::RegexBuilder;
@@ -472,6 +473,36 @@ pub fn encode_bigram_mesh_summary_radix_into(
     stats
 }
 
+pub fn encode_bigram_mesh_summary_identity_hash_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    type EdgeSet = std::collections::HashSet<u32, BuildHasherDefault<EdgeIdentityHasher>>;
+
+    edges.clear();
+    let capacity = bytes.len().saturating_sub(2);
+    let mut seen = EdgeSet::with_capacity_and_hasher(capacity, BuildHasherDefault::default());
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+    collect_bigram_edges_unique_identity(bytes, &mut seen, edges, &mut stats);
+
+    if has_ascii_uppercase(bytes) {
+        lower.clear();
+        lower.extend_from_slice(bytes);
+        lower.make_ascii_lowercase();
+        collect_bigram_edges_unique_identity(lower, &mut seen, edges, &mut stats);
+    }
+
+    edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
 pub fn encode_bigram_mesh_summary_hash_into(
     bytes: &[u8],
     edges: &mut Vec<u32>,
@@ -711,6 +742,114 @@ pub fn encode_bigram_mesh_summary_sparse_first_bitset_into(
     stats
 }
 
+pub fn encode_bigram_mesh_summary_trie_pair_bitset_into(
+    bytes: &[u8],
+    pair_index: &mut Vec<[u16; 256]>,
+    pair_bitsets: &mut Vec<Vec<[u64; 4]>>,
+    touched_pairs: &mut Vec<(u8, u8)>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    if pair_index.len() < 256 {
+        pair_index.resize(256, [u16::MAX; 256]);
+    }
+    if pair_bitsets.len() < 256 {
+        pair_bitsets.resize_with(256, Vec::new);
+    }
+
+    touched_pairs.clear();
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2).saturating_mul(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        first_bitset_scratch_bytes: trie_pair_bitset_scratch_bytes(pair_index, pair_bitsets),
+        ..MeshSummaryBuildStats::default()
+    };
+    let mut touched_first = [false; 256];
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            push_edge_if_unseen_trie_pair(
+                original,
+                pair_index,
+                pair_bitsets,
+                touched_pairs,
+                &mut touched_first,
+                edges,
+                &mut stats,
+            );
+
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            if lowered != original {
+                push_edge_if_unseen_trie_pair(
+                    lowered,
+                    pair_index,
+                    pair_bitsets,
+                    touched_pairs,
+                    &mut touched_first,
+                    edges,
+                    &mut stats,
+                );
+            }
+        }
+    }
+
+    for edge in edges.iter().copied() {
+        clear_trie_pair_edge(edge, pair_index, pair_bitsets);
+        stats.bitset_cleared_edges += 1;
+    }
+    for (first, second) in touched_pairs.iter().copied() {
+        pair_index[first as usize][second as usize] = u16::MAX;
+    }
+    for bucket in pair_bitsets.iter_mut() {
+        bucket.clear();
+    }
+
+    edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    stats.touched_first_buckets = touched_first.iter().filter(|value| **value).count() as u64;
+    stats.first_bitset_scratch_bytes = trie_pair_bitset_scratch_bytes(pair_index, pair_bitsets);
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_rdxsort_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    use rdxsort::RdxSort;
+
+    let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
+    edges.rdxsort();
+    edges.dedup();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_rdst_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    use rdst::RadixSort;
+
+    let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
+    edges.radix_sort_unstable();
+    edges.dedup();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
 pub fn encode_bigram_mesh_summary_grouped_buckets_into(
     bytes: &[u8],
     buckets: &mut Vec<Vec<u32>>,
@@ -912,6 +1051,71 @@ fn clear_first_bitset_edge(edge: u32, first_bitsets: &mut [Vec<u64>]) {
     first_bitsets[first][word] &= !mask;
 }
 
+fn push_edge_if_unseen_trie_pair(
+    edge: u32,
+    pair_index: &mut [[u16; 256]],
+    pair_bitsets: &mut [Vec<[u64; 4]>],
+    touched_pairs: &mut Vec<(u8, u8)>,
+    touched_first: &mut [bool; 256],
+    edges: &mut Vec<u32>,
+    stats: &mut MeshSummaryBuildStats,
+) {
+    let first = ((edge >> 16) & 0xff) as usize;
+    let second = ((edge >> 8) & 0xff) as usize;
+    let third = (edge & 0xff) as usize;
+
+    let mut pair_pos = pair_index[first][second];
+    if pair_pos == u16::MAX {
+        let new_pos = pair_bitsets[first].len();
+        debug_assert!(new_pos <= u16::MAX as usize);
+        pair_bitsets[first].push([0; 4]);
+        pair_pos = new_pos as u16;
+        pair_index[first][second] = pair_pos;
+        touched_pairs.push((first as u8, second as u8));
+        touched_first[first] = true;
+        stats.bitset_resizes += 1;
+    }
+
+    let bits = &mut pair_bitsets[first][pair_pos as usize];
+    let word = third >> 6;
+    let mask = 1u64 << (third & 63);
+    if bits[word] & mask == 0 {
+        bits[word] |= mask;
+        edges.push(edge);
+        stats.pushed_edges += 1;
+    }
+}
+
+fn clear_trie_pair_edge(
+    edge: u32,
+    pair_index: &[[u16; 256]],
+    pair_bitsets: &mut [Vec<[u64; 4]>],
+) {
+    let first = ((edge >> 16) & 0xff) as usize;
+    let second = ((edge >> 8) & 0xff) as usize;
+    let third = (edge & 0xff) as usize;
+    let pair_pos = pair_index[first][second];
+    if pair_pos == u16::MAX {
+        return;
+    }
+    let bits = &mut pair_bitsets[first][pair_pos as usize];
+    let word = third >> 6;
+    let mask = 1u64 << (third & 63);
+    bits[word] &= !mask;
+}
+
+fn trie_pair_bitset_scratch_bytes(
+    pair_index: &[[u16; 256]],
+    pair_bitsets: &[Vec<[u64; 4]>],
+) -> u64 {
+    let index_bytes = pair_index.len() as u64 * 256 * 2;
+    let bitset_bytes: u64 = pair_bitsets
+        .iter()
+        .map(|bucket| bucket.capacity() as u64 * 32)
+        .sum();
+    index_bytes + bitset_bytes
+}
+
 fn first_bitset_scratch_bytes(first_bitsets: &[Vec<u64>]) -> u64 {
     first_bitsets
         .iter()
@@ -1010,6 +1214,64 @@ fn collect_bigram_edges(bytes: &[u8], edges: &mut Vec<u32>) {
 fn collect_bigram_edges_unique(
     bytes: &[u8],
     seen: &mut std::collections::HashSet<u32>,
+    edges: &mut Vec<u32>,
+    stats: &mut MeshSummaryBuildStats,
+) {
+    if bytes.len() < 3 {
+        return;
+    }
+
+    for index in 0..bytes.len() - 2 {
+        let edge = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+        if seen.insert(edge) {
+            edges.push(edge);
+            stats.pushed_edges += 1;
+        }
+    }
+}
+
+#[derive(Default)]
+struct EdgeIdentityHasher {
+    value: u64,
+}
+
+impl Hasher for EdgeIdentityHasher {
+    fn finish(&self) -> u64 {
+        self.value
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut value = 0u64;
+        for (index, byte) in bytes.iter().take(8).enumerate() {
+            value |= (*byte as u64) << (index * 8);
+        }
+        self.value = value;
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.value = value as u64;
+    }
+
+    fn write_u16(&mut self, value: u16) {
+        self.value = value as u64;
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.value = value as u64;
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.value = value;
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.value = value as u64;
+    }
+}
+
+fn collect_bigram_edges_unique_identity(
+    bytes: &[u8],
+    seen: &mut std::collections::HashSet<u32, BuildHasherDefault<EdgeIdentityHasher>>,
     edges: &mut Vec<u32>,
     stats: &mut MeshSummaryBuildStats,
 ) {
@@ -1937,6 +2199,37 @@ mod tests {
             &mut out_grouped,
         );
         assert_eq!(out_grouped, out_combined);
+
+        let mut pair_index = Vec::new();
+        let mut pair_bitsets = Vec::new();
+        let mut touched_pairs = Vec::new();
+        let mut out_trie = Vec::new();
+        encode_bigram_mesh_summary_trie_pair_bitset_into(
+            data,
+            &mut pair_index,
+            &mut pair_bitsets,
+            &mut touched_pairs,
+            &mut edges,
+            &mut out_trie,
+        );
+        assert_eq!(out_trie, out_combined);
+
+        let mut out_identity = Vec::new();
+        encode_bigram_mesh_summary_identity_hash_into(
+            data,
+            &mut edges,
+            &mut lower,
+            &mut out_identity,
+        );
+        assert_eq!(out_identity, out_combined);
+
+        let mut out_rdxsort = Vec::new();
+        encode_bigram_mesh_summary_rdxsort_into(data, &mut edges, &mut lower, &mut out_rdxsort);
+        assert_eq!(out_rdxsort, out_combined);
+
+        let mut out_rdst = Vec::new();
+        encode_bigram_mesh_summary_rdst_into(data, &mut edges, &mut lower, &mut out_rdst);
+        assert_eq!(out_rdst, out_combined);
     }
 
     #[test]

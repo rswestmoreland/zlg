@@ -143,12 +143,16 @@ pub enum BuildProfileArg {
     Combined,
     CombinedRadix,
     CombinedHash,
+    CombinedIdentityHash,
+    CombinedRdxsort,
+    CombinedRdst,
     CombinedCaseRaw,
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
     CombinedLowerOnlyBitsetSeen,
     CombinedSparseFirstBitset,
+    CombinedTriePairBitset,
     CombinedGroupedBuckets,
     CombinedBucket256,
 }
@@ -162,6 +166,9 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::Combined => BuildProfile::Combined,
             BuildProfileArg::CombinedRadix => BuildProfile::CombinedRadix,
             BuildProfileArg::CombinedHash => BuildProfile::CombinedHash,
+            BuildProfileArg::CombinedIdentityHash => BuildProfile::CombinedIdentityHash,
+            BuildProfileArg::CombinedRdxsort => BuildProfile::CombinedRdxsort,
+            BuildProfileArg::CombinedRdst => BuildProfile::CombinedRdst,
             BuildProfileArg::CombinedCaseRaw => BuildProfile::CombinedCaseRaw,
             BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
             BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
@@ -170,6 +177,7 @@ impl From<BuildProfileArg> for BuildProfile {
                 BuildProfile::CombinedLowerOnlyBitsetSeen
             }
             BuildProfileArg::CombinedSparseFirstBitset => BuildProfile::CombinedSparseFirstBitset,
+            BuildProfileArg::CombinedTriePairBitset => BuildProfile::CombinedTriePairBitset,
             BuildProfileArg::CombinedGroupedBuckets => BuildProfile::CombinedGroupedBuckets,
             BuildProfileArg::CombinedBucket256 => BuildProfile::CombinedBucket256,
         }

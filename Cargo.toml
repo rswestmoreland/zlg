@@ -13,7 +13,9 @@ crc32fast = "1.4"
 pcre2 = "0.2.11"
 memchr = "2.7"
 regex = "1.11"
+rdxsort = "0.3"
 thiserror = "2.0"
+rdst = { version = "0.20", default-features = false }
 zstd = "0.13"
 
 [dev-dependencies]

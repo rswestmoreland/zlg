@@ -1,0 +1,27 @@
+Phase 1e prep checkpoint
+
+Prepared from validated Phase 1d state.
+
+Changes prepared:
+- Added fail-closed Phase 1e benchmark harness for max_rss_kb capture.
+- Added combined-trie-pair-bitset experimental profile.
+- Added combined-identity-hash experimental profile.
+- Added combined-rdxsort experimental profile using rdxsort.
+- Added combined-rdst experimental profile using rdst with default features disabled.
+- Added multi-corpus temporary benchmark generation: high_dup, high_cardinality, unicode, binaryish.
+- Added byte-exact combined round-trip check for every corpus.
+- Added search-output equivalence checks for serious profiles against combined on line-oriented corpora.
+- Added concise Codex Phase 1e prompt.
+
+Validation in ChatGPT sandbox:
+- Python syntax check passed for tools/phase1e_builder_fairness_bench.py.
+- Bash syntax check passed for scripts/phase1e_builder_fairness_once.sh.
+- Rust/Cargo validation was not run because Rust is unavailable in this environment.
+
+Codex must run and fix:
+- cargo fmt --check
+- cargo check
+- cargo test
+- cargo clippy --all-targets --all-features -- -D warnings
+- cargo build --release
+- bash scripts/phase1e_builder_fairness_once.sh

@@ -870,11 +870,7 @@ fn ensure_full_u24_bitset(bitset: &mut Vec<u64>) -> bool {
     }
 }
 
-fn clear_full_bitset_edges(
-    edges: &[u32],
-    bitset: &mut [u64],
-    stats: &mut MeshSummaryBuildStats,
-) {
+fn clear_full_bitset_edges(edges: &[u32], bitset: &mut [u64], stats: &mut MeshSummaryBuildStats) {
     for edge in edges.iter().copied() {
         clear_edge_bit(edge, bitset);
         stats.bitset_cleared_edges += 1;
@@ -1965,18 +1961,14 @@ mod tests {
     fn mesh_summary_handles_utf8_as_bytes() {
         let data = b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86 user=\xe3\x82\xab\xe3\x83\x8a msg=\"\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x88\x90\xe5\x8a\x9f\"\n";
         let summary = SearchSummary::from_bigram_mesh(data);
-        assert!(summary.may_contain_literal(
-            b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86",
-            false
-        ));
+        assert!(
+            summary.may_contain_literal(b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86", false)
+        );
         assert!(summary.may_contain_literal(
             b"\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x88\x90\xe5\x8a\x9f",
             false
         ));
-        assert!(!summary.may_contain_literal(
-            b"username=\xe3\x81\xaf\xe3\x81\xaa",
-            false
-        ));
+        assert!(!summary.may_contain_literal(b"username=\xe3\x81\xaf\xe3\x81\xaa", false));
     }
 
     #[test]

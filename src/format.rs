@@ -465,12 +465,14 @@ impl<W: Write> ZlgWriter<W> {
                         &mut self.mesh_summary_scratch,
                     )
                 }
-                BuildProfile::CombinedGroupedBuckets => encode_bigram_mesh_summary_grouped_buckets_into(
-                    &chunk.data,
-                    &mut self.mesh_group_buckets_scratch,
-                    &mut self.mesh_edges_scratch,
-                    &mut self.mesh_summary_scratch,
-                ),
+                BuildProfile::CombinedGroupedBuckets => {
+                    encode_bigram_mesh_summary_grouped_buckets_into(
+                        &chunk.data,
+                        &mut self.mesh_group_buckets_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                    )
+                }
                 BuildProfile::CombinedBucket256 => encode_bigram_mesh_summary_bucket256_into(
                     &chunk.data,
                     &mut self.mesh_edges_scratch,
@@ -644,8 +646,10 @@ impl<W: Write> ZlgWriter<W> {
             self.build_stats.edge_scratch_capacity_bytes.max(edge_bytes);
         self.build_stats.sort_scratch_capacity_bytes =
             self.build_stats.sort_scratch_capacity_bytes.max(sort_bytes);
-        self.build_stats.lower_scratch_capacity_bytes =
-            self.build_stats.lower_scratch_capacity_bytes.max(lower_bytes);
+        self.build_stats.lower_scratch_capacity_bytes = self
+            .build_stats
+            .lower_scratch_capacity_bytes
+            .max(lower_bytes);
         self.build_stats.summary_scratch_capacity_bytes = self
             .build_stats
             .summary_scratch_capacity_bytes
@@ -915,7 +919,11 @@ mod tests {
 
     #[test]
     fn round_trip_single_chunk_in_memory() {
-        assert_round_trip_bytes(b"alpha\nbeta\n", SearchSummaryMode::Bitmap, BuildProfile::Current);
+        assert_round_trip_bytes(
+            b"alpha\nbeta\n",
+            SearchSummaryMode::Bitmap,
+            BuildProfile::Current,
+        );
     }
 
     #[test]

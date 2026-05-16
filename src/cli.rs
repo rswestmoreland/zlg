@@ -166,7 +166,9 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
             BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
             BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
-            BuildProfileArg::CombinedLowerOnlyBitsetSeen => BuildProfile::CombinedLowerOnlyBitsetSeen,
+            BuildProfileArg::CombinedLowerOnlyBitsetSeen => {
+                BuildProfile::CombinedLowerOnlyBitsetSeen
+            }
             BuildProfileArg::CombinedSparseFirstBitset => BuildProfile::CombinedSparseFirstBitset,
             BuildProfileArg::CombinedGroupedBuckets => BuildProfile::CombinedGroupedBuckets,
             BuildProfileArg::CombinedBucket256 => BuildProfile::CombinedBucket256,

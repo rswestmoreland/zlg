@@ -44,6 +44,13 @@ struct BigramMeshSummary {
     edges: Vec<u32>,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MeshSummaryBuildStats {
+    pub raw_edge_windows: u64,
+    pub pushed_edges: u64,
+    pub unique_edges: u64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchSummaryMode {
     Bitmap,
@@ -433,11 +440,10 @@ pub fn encode_bigram_mesh_summary_into(
     edges: &mut Vec<u32>,
     lower: &mut Vec<u8>,
     out: &mut Vec<u8>,
-) {
-    collect_bigram_mesh_edges(bytes, edges, lower);
-    edges.sort_unstable();
-    edges.dedup();
-    encode_bigram_mesh_edges_into(edges, out);
+) -> MeshSummaryBuildStats {
+    let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
+    finish_bigram_mesh_summary(edges, out, &mut stats);
+    stats
 }
 
 pub fn encode_bigram_mesh_summary_radix_into(
@@ -446,11 +452,13 @@ pub fn encode_bigram_mesh_summary_radix_into(
     sort_scratch: &mut Vec<u32>,
     lower: &mut Vec<u8>,
     out: &mut Vec<u8>,
-) {
-    collect_bigram_mesh_edges(bytes, edges, lower);
+) -> MeshSummaryBuildStats {
+    let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
     radix_sort_u24(edges, sort_scratch);
     edges.dedup();
+    stats.unique_edges = edges.len() as u64;
     encode_bigram_mesh_edges_into(edges, out);
+    stats
 }
 
 pub fn encode_bigram_mesh_summary_hash_into(
@@ -458,56 +466,295 @@ pub fn encode_bigram_mesh_summary_hash_into(
     edges: &mut Vec<u32>,
     lower: &mut Vec<u8>,
     out: &mut Vec<u8>,
-) {
+) -> MeshSummaryBuildStats {
     use std::collections::HashSet;
 
     edges.clear();
     let capacity = bytes.len().saturating_sub(2);
     let mut seen = HashSet::with_capacity(capacity);
-    collect_bigram_edges_unique(bytes, &mut seen, edges);
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+    collect_bigram_edges_unique(bytes, &mut seen, edges, &mut stats);
 
     if has_ascii_uppercase(bytes) {
         lower.clear();
         lower.extend_from_slice(bytes);
         lower.make_ascii_lowercase();
-        collect_bigram_edges_unique(lower, &mut seen, edges);
+        collect_bigram_edges_unique(lower, &mut seen, edges, &mut stats);
     }
 
     edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_case_raw_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+    collect_bigram_edges_counted(bytes, edges, &mut stats);
+    finish_bigram_mesh_summary(edges, out, &mut stats);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_lower_only_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            edges.push(pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            ));
+            stats.pushed_edges += 1;
+        }
+    }
+
+    finish_bigram_mesh_summary(edges, out, &mut stats);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_inline_lower_delta_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2).saturating_mul(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            edges.push(original);
+            stats.pushed_edges += 1;
+
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            if lowered != original {
+                edges.push(lowered);
+                stats.pushed_edges += 1;
+            }
+        }
+    }
+
+    finish_bigram_mesh_summary(edges, out, &mut stats);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_bitset_seen_into(
+    bytes: &[u8],
+    bitset: &mut Vec<u64>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    const EDGE_SPACE_BITS: usize = 1 << 24;
+    const EDGE_SPACE_WORDS: usize = EDGE_SPACE_BITS / 64;
+
+    if bitset.len() < EDGE_SPACE_WORDS {
+        bitset.resize(EDGE_SPACE_WORDS, 0);
+    }
+    edges.clear();
+    edges.reserve(bytes.len().saturating_sub(2));
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+
+    if bytes.len() >= 3 {
+        for index in 0..bytes.len() - 2 {
+            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            push_edge_if_unseen(original, bitset, edges, &mut stats);
+
+            let lowered = pack_bigram_edge_bytes(
+                ascii_lower_byte(bytes[index]),
+                ascii_lower_byte(bytes[index + 1]),
+                ascii_lower_byte(bytes[index + 2]),
+            );
+            if lowered != original {
+                push_edge_if_unseen(lowered, bitset, edges, &mut stats);
+            }
+        }
+    }
+
+    for edge in edges.iter().copied() {
+        clear_edge_bit(edge, bitset);
+    }
+    edges.sort_unstable();
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+pub fn encode_bigram_mesh_summary_bucket256_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    sort_scratch: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
+    let mut stats = collect_bigram_mesh_edges(bytes, edges, lower);
+    bucket_sort_dedup_u24(edges, sort_scratch);
+    stats.unique_edges = edges.len() as u64;
+    encode_bigram_mesh_edges_into(edges, out);
+    stats
+}
+
+fn finish_bigram_mesh_summary(
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+    stats: &mut MeshSummaryBuildStats,
+) {
+    edges.sort_unstable();
+    edges.dedup();
+    stats.unique_edges = edges.len() as u64;
     encode_bigram_mesh_edges_into(edges, out);
 }
 
-fn collect_bigram_mesh_edges(bytes: &[u8], edges: &mut Vec<u32>, lower: &mut Vec<u8>) {
+fn collect_bigram_mesh_edges(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+) -> MeshSummaryBuildStats {
     edges.clear();
     edges.reserve(bytes.len().saturating_sub(2));
-    collect_bigram_edges(bytes, edges);
+    let mut stats = MeshSummaryBuildStats {
+        raw_edge_windows: raw_edge_windows(bytes),
+        ..MeshSummaryBuildStats::default()
+    };
+    collect_bigram_edges_counted(bytes, edges, &mut stats);
 
     if has_ascii_uppercase(bytes) {
         lower.clear();
         lower.extend_from_slice(bytes);
         lower.make_ascii_lowercase();
         edges.reserve(lower.len().saturating_sub(2));
-        collect_bigram_edges(lower, edges);
+        collect_bigram_edges_counted(lower, edges, &mut stats);
+    }
+    stats
+}
+
+
+fn raw_edge_windows(bytes: &[u8]) -> u64 {
+    bytes.len().saturating_sub(2) as u64
+}
+
+fn ascii_lower_byte(byte: u8) -> u8 {
+    if byte.is_ascii_uppercase() {
+        byte + 32
+    } else {
+        byte
     }
 }
 
-fn encode_bigram_mesh_edges_into(edges: &[u32], out: &mut Vec<u8>) {
-    out.clear();
-    out.reserve(12 + edges.len().saturating_mul(2));
-    out.extend_from_slice(BIGRAM_MESH_MAGIC);
-    out.extend_from_slice(&BIGRAM_MESH_VERSION.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out.extend_from_slice(&(edges.len() as u32).to_le_bytes());
+fn collect_bigram_edges_counted(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    stats: &mut MeshSummaryBuildStats,
+) {
+    if bytes.len() < 3 {
+        return;
+    }
 
-    let mut previous = 0u32;
-    for (index, edge) in edges.iter().copied().enumerate() {
-        let delta = if index == 0 {
-            edge
-        } else {
-            edge.saturating_sub(previous)
-        };
-        write_varint_u32(delta, out);
-        previous = edge;
+    for index in 0..bytes.len() - 2 {
+        edges.push(pack_bigram_edge_bytes(
+            bytes[index],
+            bytes[index + 1],
+            bytes[index + 2],
+        ));
+        stats.pushed_edges += 1;
+    }
+}
+
+fn push_edge_if_unseen(
+    edge: u32,
+    bitset: &mut [u64],
+    edges: &mut Vec<u32>,
+    stats: &mut MeshSummaryBuildStats,
+) {
+    let word = (edge >> 6) as usize;
+    let mask = 1u64 << (edge & 63);
+    if bitset[word] & mask == 0 {
+        bitset[word] |= mask;
+        edges.push(edge);
+        stats.pushed_edges += 1;
+    }
+}
+
+fn clear_edge_bit(edge: u32, bitset: &mut [u64]) {
+    let word = (edge >> 6) as usize;
+    let mask = 1u64 << (edge & 63);
+    bitset[word] &= !mask;
+}
+
+fn bucket_sort_dedup_u24(values: &mut Vec<u32>, scratch: &mut Vec<u32>) {
+    if values.len() < 2 {
+        return;
+    }
+
+    let mut counts = [0usize; 256];
+    for value in values.iter().copied() {
+        counts[((value >> 16) & 0xff) as usize] += 1;
+    }
+
+    let mut starts = [0usize; 256];
+    let mut total = 0usize;
+    for (index, count) in counts.iter().copied().enumerate() {
+        starts[index] = total;
+        total += count;
+    }
+
+    scratch.clear();
+    scratch.resize(values.len(), 0);
+    let mut positions = starts;
+    for value in values.iter().copied() {
+        let bucket = ((value >> 16) & 0xff) as usize;
+        let position = positions[bucket];
+        scratch[position] = value;
+        positions[bucket] += 1;
+    }
+
+    values.clear();
+    for bucket in 0..256 {
+        let start = starts[bucket];
+        let end = start + counts[bucket];
+        if start == end {
+            continue;
+        }
+        scratch[start..end].sort_unstable();
+        let mut last: Option<u32> = None;
+        for value in scratch[start..end].iter().copied() {
+            if last != Some(value) {
+                values.push(value);
+                last = Some(value);
+            }
+        }
     }
 }
 
@@ -529,6 +776,7 @@ fn collect_bigram_edges_unique(
     bytes: &[u8],
     seen: &mut std::collections::HashSet<u32>,
     edges: &mut Vec<u32>,
+    stats: &mut MeshSummaryBuildStats,
 ) {
     if bytes.len() < 3 {
         return;
@@ -538,9 +786,11 @@ fn collect_bigram_edges_unique(
         let edge = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
         if seen.insert(edge) {
             edges.push(edge);
+            stats.pushed_edges += 1;
         }
     }
 }
+
 
 fn radix_sort_u24(values: &mut [u32], scratch: &mut Vec<u32>) {
     if values.len() < 2 {

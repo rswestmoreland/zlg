@@ -143,6 +143,11 @@ pub enum BuildProfileArg {
     Combined,
     CombinedRadix,
     CombinedHash,
+    CombinedCaseRaw,
+    CombinedLowerOnly,
+    CombinedInlineLowerDelta,
+    CombinedBitsetSeen,
+    CombinedBucket256,
 }
 
 impl From<BuildProfileArg> for BuildProfile {
@@ -154,6 +159,11 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::Combined => BuildProfile::Combined,
             BuildProfileArg::CombinedRadix => BuildProfile::CombinedRadix,
             BuildProfileArg::CombinedHash => BuildProfile::CombinedHash,
+            BuildProfileArg::CombinedCaseRaw => BuildProfile::CombinedCaseRaw,
+            BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
+            BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
+            BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
+            BuildProfileArg::CombinedBucket256 => BuildProfile::CombinedBucket256,
         }
     }
 }

@@ -1,7 +1,10 @@
 use crate::chunk::PlainChunk;
 use crate::search::{
-    encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_into,
-    encode_bigram_mesh_summary_radix_into, SearchSummary, SearchSummaryMode,
+    encode_bigram_mesh_summary_bitset_seen_into, encode_bigram_mesh_summary_bucket256_into,
+    encode_bigram_mesh_summary_case_raw_into, encode_bigram_mesh_summary_hash_into,
+    encode_bigram_mesh_summary_inline_lower_delta_into, encode_bigram_mesh_summary_into,
+    encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
+    MeshSummaryBuildStats, SearchSummary, SearchSummaryMode,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -188,20 +191,41 @@ pub enum BuildProfile {
     Combined,
     CombinedRadix,
     CombinedHash,
+    CombinedCaseRaw,
+    CombinedLowerOnly,
+    CombinedInlineLowerDelta,
+    CombinedBitsetSeen,
+    CombinedBucket256,
 }
 
 impl BuildProfile {
     fn uses_mesh_scratch(self) -> bool {
         matches!(
             self,
-            Self::MeshScratch | Self::Combined | Self::CombinedRadix | Self::CombinedHash
+            Self::MeshScratch
+                | Self::Combined
+                | Self::CombinedRadix
+                | Self::CombinedHash
+                | Self::CombinedCaseRaw
+                | Self::CombinedLowerOnly
+                | Self::CombinedInlineLowerDelta
+                | Self::CombinedBitsetSeen
+                | Self::CombinedBucket256
         )
     }
 
     fn uses_zstd_bulk(self) -> bool {
         matches!(
             self,
-            Self::ZstdBulk | Self::Combined | Self::CombinedRadix | Self::CombinedHash
+            Self::ZstdBulk
+                | Self::Combined
+                | Self::CombinedRadix
+                | Self::CombinedHash
+                | Self::CombinedCaseRaw
+                | Self::CombinedLowerOnly
+                | Self::CombinedInlineLowerDelta
+                | Self::CombinedBitsetSeen
+                | Self::CombinedBucket256
         )
     }
 
@@ -213,6 +237,11 @@ impl BuildProfile {
             Self::Combined => "combined",
             Self::CombinedRadix => "combined-radix",
             Self::CombinedHash => "combined-hash",
+            Self::CombinedCaseRaw => "combined-case-raw",
+            Self::CombinedLowerOnly => "combined-lower-only",
+            Self::CombinedInlineLowerDelta => "combined-inline-lower-delta",
+            Self::CombinedBitsetSeen => "combined-bitset-seen",
+            Self::CombinedBucket256 => "combined-bucket256",
         }
     }
 }
@@ -227,12 +256,15 @@ pub struct BuildStats {
     pub summary_bytes: u64,
     pub compressed_bytes: u64,
     pub uncompressed_bytes: u64,
+    pub raw_edge_windows: u64,
+    pub pushed_edges: u64,
+    pub unique_edges: u64,
 }
 
 impl BuildStats {
     pub fn to_json(self, profile: BuildProfile) -> String {
         format!(
-            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {}\n}}\n",
+            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {}\n}}\n",
             profile.as_str(),
             self.chunks,
             self.summary_ns,
@@ -241,9 +273,13 @@ impl BuildStats {
             self.total_ns,
             self.summary_bytes,
             self.compressed_bytes,
-            self.uncompressed_bytes
+            self.uncompressed_bytes,
+            self.raw_edge_windows,
+            self.pushed_edges,
+            self.unique_edges
         )
     }
+
 }
 
 pub struct ZlgWriter<W: Write> {
@@ -257,6 +293,7 @@ pub struct ZlgWriter<W: Write> {
     total_lines: u64,
     mesh_edges_scratch: Vec<u32>,
     mesh_sort_scratch: Vec<u32>,
+    mesh_bitset_scratch: Vec<u64>,
     mesh_lower_scratch: Vec<u8>,
     mesh_summary_scratch: Vec<u8>,
     zstd_compressor: Option<zstd::bulk::Compressor<'static>>,
@@ -316,6 +353,7 @@ impl<W: Write> ZlgWriter<W> {
             total_lines: 0,
             mesh_edges_scratch: Vec::new(),
             mesh_sort_scratch: Vec::new(),
+            mesh_bitset_scratch: Vec::new(),
             mesh_lower_scratch: Vec::new(),
             mesh_summary_scratch: Vec::new(),
             zstd_compressor,
@@ -333,8 +371,9 @@ impl<W: Write> ZlgWriter<W> {
         let summary_start = Instant::now();
         let summary_is_scratch = self.summary_mode == SearchSummaryMode::MeshBigram
             && self.build_profile.uses_mesh_scratch();
+        let mut mesh_stats = MeshSummaryBuildStats::default();
         let summary_owned = if summary_is_scratch {
-            match self.build_profile {
+            mesh_stats = match self.build_profile {
                 BuildProfile::CombinedRadix => encode_bigram_mesh_summary_radix_into(
                     &chunk.data,
                     &mut self.mesh_edges_scratch,
@@ -345,6 +384,34 @@ impl<W: Write> ZlgWriter<W> {
                 BuildProfile::CombinedHash => encode_bigram_mesh_summary_hash_into(
                     &chunk.data,
                     &mut self.mesh_edges_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedCaseRaw => encode_bigram_mesh_summary_case_raw_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedLowerOnly => encode_bigram_mesh_summary_lower_only_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedInlineLowerDelta => encode_bigram_mesh_summary_inline_lower_delta_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedBitsetSeen => encode_bigram_mesh_summary_bitset_seen_into(
+                    &chunk.data,
+                    &mut self.mesh_bitset_scratch,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedBucket256 => encode_bigram_mesh_summary_bucket256_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_sort_scratch,
                     &mut self.mesh_lower_scratch,
                     &mut self.mesh_summary_scratch,
                 ),
@@ -433,6 +500,9 @@ impl<W: Write> ZlgWriter<W> {
         self.build_stats.summary_bytes += header.summary_len as u64;
         self.build_stats.compressed_bytes += header.compressed_len;
         self.build_stats.uncompressed_bytes += header.uncompressed_len;
+        self.build_stats.raw_edge_windows += mesh_stats.raw_edge_windows;
+        self.build_stats.pushed_edges += mesh_stats.pushed_edges;
+        self.build_stats.unique_edges += mesh_stats.unique_edges;
 
         Ok(())
     }

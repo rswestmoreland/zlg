@@ -1,0 +1,21 @@
+Phase 1c prep summary
+
+Added build profiles:
+- combined-case-raw
+- combined-lower-only
+- combined-inline-lower-delta
+- combined-bitset-seen
+- combined-bucket256
+
+Added build stats:
+- raw_edge_windows
+- pushed_edges
+- unique_edges
+
+Added:
+- tools/phase1c_case_duplicate_bench.py
+- scripts/phase1c_case_duplicate_once.sh
+- docs/PHASE1C_CASE_DUPLICATE_SHOOTOUT.md
+- docs/CODEX_PHASE1C_PROMPT.md
+
+No Cargo validation was run in ChatGPT.

@@ -434,6 +434,50 @@ pub fn encode_bigram_mesh_summary_into(
     lower: &mut Vec<u8>,
     out: &mut Vec<u8>,
 ) {
+    collect_bigram_mesh_edges(bytes, edges, lower);
+    edges.sort_unstable();
+    edges.dedup();
+    encode_bigram_mesh_edges_into(edges, out);
+}
+
+pub fn encode_bigram_mesh_summary_radix_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    sort_scratch: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) {
+    collect_bigram_mesh_edges(bytes, edges, lower);
+    radix_sort_u24(edges, sort_scratch);
+    edges.dedup();
+    encode_bigram_mesh_edges_into(edges, out);
+}
+
+pub fn encode_bigram_mesh_summary_hash_into(
+    bytes: &[u8],
+    edges: &mut Vec<u32>,
+    lower: &mut Vec<u8>,
+    out: &mut Vec<u8>,
+) {
+    use std::collections::HashSet;
+
+    edges.clear();
+    let capacity = bytes.len().saturating_sub(2);
+    let mut seen = HashSet::with_capacity(capacity);
+    collect_bigram_edges_unique(bytes, &mut seen, edges);
+
+    if has_ascii_uppercase(bytes) {
+        lower.clear();
+        lower.extend_from_slice(bytes);
+        lower.make_ascii_lowercase();
+        collect_bigram_edges_unique(lower, &mut seen, edges);
+    }
+
+    edges.sort_unstable();
+    encode_bigram_mesh_edges_into(edges, out);
+}
+
+fn collect_bigram_mesh_edges(bytes: &[u8], edges: &mut Vec<u32>, lower: &mut Vec<u8>) {
     edges.clear();
     edges.reserve(bytes.len().saturating_sub(2));
     collect_bigram_edges(bytes, edges);
@@ -445,11 +489,6 @@ pub fn encode_bigram_mesh_summary_into(
         edges.reserve(lower.len().saturating_sub(2));
         collect_bigram_edges(lower, edges);
     }
-
-    edges.sort_unstable();
-    edges.dedup();
-
-    encode_bigram_mesh_edges_into(edges, out);
 }
 
 fn encode_bigram_mesh_edges_into(edges: &[u32], out: &mut Vec<u8>) {
@@ -483,6 +522,58 @@ fn collect_bigram_edges(bytes: &[u8], edges: &mut Vec<u32>) {
             bytes[index + 1],
             bytes[index + 2],
         ));
+    }
+}
+
+fn collect_bigram_edges_unique(
+    bytes: &[u8],
+    seen: &mut std::collections::HashSet<u32>,
+    edges: &mut Vec<u32>,
+) {
+    if bytes.len() < 3 {
+        return;
+    }
+
+    for index in 0..bytes.len() - 2 {
+        let edge = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+        if seen.insert(edge) {
+            edges.push(edge);
+        }
+    }
+}
+
+fn radix_sort_u24(values: &mut Vec<u32>, scratch: &mut Vec<u32>) {
+    if values.len() < 2 {
+        return;
+    }
+
+    scratch.clear();
+    scratch.resize(values.len(), 0);
+
+    radix_sort_u24_pass(values, scratch, 0);
+    radix_sort_u24_pass(scratch, values, 8);
+    radix_sort_u24_pass(values, scratch, 16);
+    values.copy_from_slice(scratch);
+}
+
+fn radix_sort_u24_pass(input: &[u32], output: &mut [u32], shift: u32) {
+    let mut counts = [0usize; 256];
+    for value in input {
+        counts[((value >> shift) & 0xff) as usize] += 1;
+    }
+
+    let mut total = 0usize;
+    for count in &mut counts {
+        let current = *count;
+        *count = total;
+        total += current;
+    }
+
+    for value in input {
+        let bucket = ((value >> shift) & 0xff) as usize;
+        let index = counts[bucket];
+        output[index] = *value;
+        counts[bucket] += 1;
     }
 }
 

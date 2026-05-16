@@ -1,5 +1,8 @@
 use crate::chunk::PlainChunk;
-use crate::search::{encode_bigram_mesh_summary_into, SearchSummary, SearchSummaryMode};
+use crate::search::{
+    encode_bigram_mesh_summary_hash_into, encode_bigram_mesh_summary_into,
+    encode_bigram_mesh_summary_radix_into, SearchSummary, SearchSummaryMode,
+};
 
 use anyhow::{anyhow, Context, Result};
 use crc32fast::Hasher;
@@ -183,15 +186,23 @@ pub enum BuildProfile {
     MeshScratch,
     ZstdBulk,
     Combined,
+    CombinedRadix,
+    CombinedHash,
 }
 
 impl BuildProfile {
     fn uses_mesh_scratch(self) -> bool {
-        matches!(self, Self::MeshScratch | Self::Combined)
+        matches!(
+            self,
+            Self::MeshScratch | Self::Combined | Self::CombinedRadix | Self::CombinedHash
+        )
     }
 
     fn uses_zstd_bulk(self) -> bool {
-        matches!(self, Self::ZstdBulk | Self::Combined)
+        matches!(
+            self,
+            Self::ZstdBulk | Self::Combined | Self::CombinedRadix | Self::CombinedHash
+        )
     }
 
     pub fn as_str(self) -> &'static str {
@@ -200,6 +211,8 @@ impl BuildProfile {
             Self::MeshScratch => "mesh-scratch",
             Self::ZstdBulk => "zstd-bulk",
             Self::Combined => "combined",
+            Self::CombinedRadix => "combined-radix",
+            Self::CombinedHash => "combined-hash",
         }
     }
 }
@@ -243,6 +256,7 @@ pub struct ZlgWriter<W: Write> {
     total_uncompressed_len: u64,
     total_lines: u64,
     mesh_edges_scratch: Vec<u32>,
+    mesh_sort_scratch: Vec<u32>,
     mesh_lower_scratch: Vec<u8>,
     mesh_summary_scratch: Vec<u8>,
     zstd_compressor: Option<zstd::bulk::Compressor<'static>>,
@@ -301,6 +315,7 @@ impl<W: Write> ZlgWriter<W> {
             total_uncompressed_len: 0,
             total_lines: 0,
             mesh_edges_scratch: Vec::new(),
+            mesh_sort_scratch: Vec::new(),
             mesh_lower_scratch: Vec::new(),
             mesh_summary_scratch: Vec::new(),
             zstd_compressor,
@@ -319,12 +334,27 @@ impl<W: Write> ZlgWriter<W> {
         let summary_is_scratch = self.summary_mode == SearchSummaryMode::MeshBigram
             && self.build_profile.uses_mesh_scratch();
         let summary_owned = if summary_is_scratch {
-            encode_bigram_mesh_summary_into(
-                &chunk.data,
-                &mut self.mesh_edges_scratch,
-                &mut self.mesh_lower_scratch,
-                &mut self.mesh_summary_scratch,
-            );
+            match self.build_profile {
+                BuildProfile::CombinedRadix => encode_bigram_mesh_summary_radix_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_sort_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                BuildProfile::CombinedHash => encode_bigram_mesh_summary_hash_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+                _ => encode_bigram_mesh_summary_into(
+                    &chunk.data,
+                    &mut self.mesh_edges_scratch,
+                    &mut self.mesh_lower_scratch,
+                    &mut self.mesh_summary_scratch,
+                ),
+            };
             Vec::new()
         } else {
             match self.summary_mode {

@@ -141,6 +141,8 @@ pub enum BuildProfileArg {
     MeshScratch,
     ZstdBulk,
     Combined,
+    CombinedRadix,
+    CombinedHash,
 }
 
 impl From<BuildProfileArg> for BuildProfile {
@@ -150,6 +152,8 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::MeshScratch => BuildProfile::MeshScratch,
             BuildProfileArg::ZstdBulk => BuildProfile::ZstdBulk,
             BuildProfileArg::Combined => BuildProfile::Combined,
+            BuildProfileArg::CombinedRadix => BuildProfile::CombinedRadix,
+            BuildProfileArg::CombinedHash => BuildProfile::CombinedHash,
         }
     }
 }

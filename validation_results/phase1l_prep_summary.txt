@@ -1,0 +1,17 @@
+Phase 1l prep checkpoint created.
+
+Scope:
+- final stack streamlining and reserve-strategy validation prep
+- no production builder change
+- no format change
+- no async worker pool
+
+Added:
+- summary-first search skip path
+- memchr streaming line split
+- chunker line scratch reuse and pending-line swap
+- moderate chunk data preallocation
+- edge reserve strategy profiles for combined-bitset-seen
+- benchmark script for current/none/capped/previous-unique reserve options
+
+Codex must run scripts/phase1l_final_stack_streamline_once.sh and fix any compile, test, clippy, or benchmark issues narrowly.

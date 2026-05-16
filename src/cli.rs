@@ -165,6 +165,9 @@ pub enum BuildProfileArg {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetSeenReserveNone,
+    CombinedBitsetSeenReserveCapped,
+    CombinedBitsetSeenReservePrevUnique,
     CombinedBitsetSeenStreamZstd,
     CombinedBitsetPagedSeen,
     CombinedLowerOnlyBitsetSeen,
@@ -190,6 +193,15 @@ impl From<BuildProfileArg> for BuildProfile {
             BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
             BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
             BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
+            BuildProfileArg::CombinedBitsetSeenReserveNone => {
+                BuildProfile::CombinedBitsetSeenReserveNone
+            }
+            BuildProfileArg::CombinedBitsetSeenReserveCapped => {
+                BuildProfile::CombinedBitsetSeenReserveCapped
+            }
+            BuildProfileArg::CombinedBitsetSeenReservePrevUnique => {
+                BuildProfile::CombinedBitsetSeenReservePrevUnique
+            }
             BuildProfileArg::CombinedBitsetSeenStreamZstd => {
                 BuildProfile::CombinedBitsetSeenStreamZstd
             }
@@ -496,9 +508,10 @@ fn grep_one(
     let mut match_count = 0usize;
     let mut file_has_match = false;
 
-    while let Some(raw_chunk) = reader.next_raw_chunk()? {
+    while let Some(raw_head) = reader.next_chunk_head()? {
         stats.chunks_total += 1;
-        if !matcher.chunk_may_match(&raw_chunk.summary) {
+        if !matcher.chunk_may_match(&raw_head.summary) {
+            reader.skip_chunk_payload(&raw_head.header)?;
             stats.chunks_skipped += 1;
             continue;
         }
@@ -508,6 +521,7 @@ fn grep_one(
         }
 
         stats.candidate_chunks += 1;
+        let raw_chunk = reader.read_chunk_payload(raw_head)?;
         let remaining = options
             .max_count
             .map(|limit| limit.saturating_sub(match_count));

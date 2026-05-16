@@ -56,7 +56,11 @@ pub struct MeshSummaryBuildStats {
     pub bitset_scratch_bytes: u64,
     pub first_bitset_scratch_bytes: u64,
     pub group_bucket_scratch_bytes: u64,
+    pub candidate_edge_events: u64,
+    pub edge_capacity_before: u64,
+    pub edge_capacity_after: u64,
 }
+
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchSummaryMode {
@@ -65,6 +69,15 @@ pub enum SearchSummaryMode {
     MeshBigram,
     None,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EdgeReserveStrategy {
+    Current,
+    None,
+    Capped,
+    PreviousUnique,
+}
+
 
 const PATH_WINDOW_MAGIC: &[u8; 4] = b"ZPW1";
 const PATH_WINDOW_VERSION: u16 = 1;
@@ -616,28 +629,55 @@ pub fn encode_bigram_mesh_summary_bitset_seen_into(
     edges: &mut Vec<u32>,
     out: &mut Vec<u8>,
 ) -> MeshSummaryBuildStats {
+    encode_bigram_mesh_summary_bitset_seen_with_reserve_into(
+        bytes,
+        bitset,
+        edges,
+        out,
+        EdgeReserveStrategy::Current,
+        0,
+    )
+}
+
+pub fn encode_bigram_mesh_summary_bitset_seen_with_reserve_into(
+    bytes: &[u8],
+    bitset: &mut Vec<u64>,
+    edges: &mut Vec<u32>,
+    out: &mut Vec<u8>,
+    reserve_strategy: EdgeReserveStrategy,
+    previous_unique_edges: usize,
+) -> MeshSummaryBuildStats {
     let resized = ensure_full_u24_bitset(bitset);
     edges.clear();
-    edges.reserve(bytes.len().saturating_sub(2).saturating_mul(2));
+    let capacity_before = edges.capacity();
+    reserve_bitset_seen_edges(edges, bytes.len(), reserve_strategy, previous_unique_edges);
     let mut stats = MeshSummaryBuildStats {
         raw_edge_windows: raw_edge_windows(bytes),
         bitset_resizes: resized as u64,
         bitset_scratch_bytes: bitset.len() as u64 * 8,
+        edge_capacity_before: capacity_before as u64,
         ..MeshSummaryBuildStats::default()
     };
 
     if bytes.len() >= 3 {
         for index in 0..bytes.len() - 2 {
-            let original = pack_bigram_edge_bytes(bytes[index], bytes[index + 1], bytes[index + 2]);
+            let b0 = bytes[index];
+            let b1 = bytes[index + 1];
+            let b2 = bytes[index + 2];
+            let original = pack_bigram_edge_bytes(b0, b1, b2);
+            stats.candidate_edge_events += 1;
             push_edge_if_unseen(original, bitset, edges, &mut stats);
 
-            let lowered = pack_bigram_edge_bytes(
-                ascii_lower_byte(bytes[index]),
-                ascii_lower_byte(bytes[index + 1]),
-                ascii_lower_byte(bytes[index + 2]),
-            );
-            if lowered != original {
-                push_edge_if_unseen(lowered, bitset, edges, &mut stats);
+            if b0.is_ascii_uppercase() || b1.is_ascii_uppercase() || b2.is_ascii_uppercase() {
+                let lowered = pack_bigram_edge_bytes(
+                    ascii_lower_byte(b0),
+                    ascii_lower_byte(b1),
+                    ascii_lower_byte(b2),
+                );
+                if lowered != original {
+                    stats.candidate_edge_events += 1;
+                    push_edge_if_unseen(lowered, bitset, edges, &mut stats);
+                }
             }
         }
     }
@@ -645,6 +685,7 @@ pub fn encode_bigram_mesh_summary_bitset_seen_into(
     clear_full_bitset_edges(edges, bitset, &mut stats);
     edges.sort_unstable();
     stats.unique_edges = edges.len() as u64;
+    stats.edge_capacity_after = edges.capacity() as u64;
     encode_bigram_mesh_edges_into(edges, out);
     stats
 }
@@ -1019,6 +1060,27 @@ fn collect_bigram_mesh_edges(
         collect_bigram_edges_counted(lower, edges, &mut stats);
     }
     stats
+}
+
+
+fn reserve_bitset_seen_edges(
+    edges: &mut Vec<u32>,
+    byte_len: usize,
+    strategy: EdgeReserveStrategy,
+    previous_unique_edges: usize,
+) {
+    let raw_windows = byte_len.saturating_sub(2);
+    let target = match strategy {
+        EdgeReserveStrategy::Current => raw_windows.saturating_mul(2),
+        EdgeReserveStrategy::None => 0,
+        EdgeReserveStrategy::Capped => (raw_windows / 16).clamp(16 * 1024, 256 * 1024),
+        EdgeReserveStrategy::PreviousUnique => previous_unique_edges
+            .saturating_mul(2)
+            .clamp(16 * 1024, 512 * 1024),
+    };
+    if target > edges.capacity() {
+        edges.reserve(target.saturating_sub(edges.capacity()));
+    }
 }
 
 fn raw_edge_windows(bytes: &[u8]) -> u64 {

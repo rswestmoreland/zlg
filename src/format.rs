@@ -1,6 +1,7 @@
 use crate::chunk::PlainChunk;
 use crate::search::{
     encode_bigram_mesh_summary_bitset_paged_seen_into, encode_bigram_mesh_summary_bitset_seen_into,
+    encode_bigram_mesh_summary_bitset_seen_with_reserve_into,
     encode_bigram_mesh_summary_bucket256_into, encode_bigram_mesh_summary_case_raw_into,
     encode_bigram_mesh_summary_grouped_buckets_into, encode_bigram_mesh_summary_hash_into,
     encode_bigram_mesh_summary_identity_hash_into,
@@ -10,11 +11,12 @@ use crate::search::{
     encode_bigram_mesh_summary_rdst_into, encode_bigram_mesh_summary_rdxsort_into,
     encode_bigram_mesh_summary_sparse_first_bitset_into,
     encode_bigram_mesh_summary_trie_pair_bitset_into, MeshSummaryBuildStats, SearchSummary,
-    SearchSummaryMode,
+    EdgeReserveStrategy, SearchSummaryMode,
 };
 
 use anyhow::{anyhow, Context, Result};
 use crc32fast::{hash as crc32, Hasher};
+use memchr::memchr_iter;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::time::Instant;
 
@@ -57,6 +59,12 @@ pub struct RawChunk {
     pub header: ChunkHeader,
     pub summary: SearchSummary,
     compressed: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct RawChunkHead {
+    pub header: ChunkHeader,
+    pub summary: SearchSummary,
 }
 
 #[derive(Debug)]
@@ -126,31 +134,35 @@ impl RawChunk {
             decoded_bytes += read as u64;
             hasher.update(&buffer[..read]);
 
+            let chunk = &buffer[..read];
             let mut start = 0usize;
-            let mut stopped_early = false;
-            for idx in 0..read {
-                if buffer[idx] == b'\n' {
-                    line.extend_from_slice(&buffer[start..=idx]);
+            for newline in memchr_iter(b'\n', chunk) {
+                let end = newline + 1;
+                if line.is_empty() {
+                    if !on_line(line_number, &chunk[start..end])? {
+                        return Ok(StreamDecodeOutcome {
+                            decoded_bytes,
+                            crc_checked: false,
+                            stopped_early: true,
+                        });
+                    }
+                } else {
+                    line.extend_from_slice(&chunk[start..end]);
                     if !on_line(line_number, &line)? {
-                        stopped_early = true;
-                        break;
+                        return Ok(StreamDecodeOutcome {
+                            decoded_bytes,
+                            crc_checked: false,
+                            stopped_early: true,
+                        });
                     }
                     line.clear();
-                    line_number += 1;
-                    start = idx + 1;
                 }
-            }
-
-            if stopped_early {
-                return Ok(StreamDecodeOutcome {
-                    decoded_bytes,
-                    crc_checked: false,
-                    stopped_early: true,
-                });
+                line_number += 1;
+                start = end;
             }
 
             if start < read {
-                line.extend_from_slice(&buffer[start..read]);
+                line.extend_from_slice(&chunk[start..]);
             }
         }
 
@@ -204,6 +216,9 @@ pub enum BuildProfile {
     CombinedLowerOnly,
     CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetSeenReserveNone,
+    CombinedBitsetSeenReserveCapped,
+    CombinedBitsetSeenReservePrevUnique,
     CombinedBitsetSeenStreamZstd,
     CombinedBitsetPagedSeen,
     CombinedLowerOnlyBitsetSeen,
@@ -228,6 +243,9 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedBitsetSeenReserveNone
+                | Self::CombinedBitsetSeenReserveCapped
+                | Self::CombinedBitsetSeenReservePrevUnique
                 | Self::CombinedBitsetSeenStreamZstd
                 | Self::CombinedBitsetPagedSeen
                 | Self::CombinedLowerOnlyBitsetSeen
@@ -252,6 +270,9 @@ impl BuildProfile {
                 | Self::CombinedLowerOnly
                 | Self::CombinedInlineLowerDelta
                 | Self::CombinedBitsetSeen
+                | Self::CombinedBitsetSeenReserveNone
+                | Self::CombinedBitsetSeenReserveCapped
+                | Self::CombinedBitsetSeenReservePrevUnique
                 | Self::CombinedBitsetPagedSeen
                 | Self::CombinedLowerOnlyBitsetSeen
                 | Self::CombinedSparseFirstBitset
@@ -276,6 +297,9 @@ impl BuildProfile {
             Self::CombinedLowerOnly => "combined-lower-only",
             Self::CombinedInlineLowerDelta => "combined-inline-lower-delta",
             Self::CombinedBitsetSeen => "combined-bitset-seen",
+            Self::CombinedBitsetSeenReserveNone => "combined-bitset-seen-reserve-none",
+            Self::CombinedBitsetSeenReserveCapped => "combined-bitset-seen-reserve-capped",
+            Self::CombinedBitsetSeenReservePrevUnique => "combined-bitset-seen-reserve-prev-unique",
             Self::CombinedBitsetSeenStreamZstd => "combined-bitset-seen-stream-zstd",
             Self::CombinedBitsetPagedSeen => "combined-bitset-paged-seen",
             Self::CombinedLowerOnlyBitsetSeen => "combined-lower-only-bitset-seen",
@@ -314,12 +338,16 @@ pub struct BuildStats {
     pub max_chunk_uncompressed_bytes: u64,
     pub max_chunk_compressed_bytes: u64,
     pub max_chunk_summary_bytes: u64,
+    pub candidate_edge_events: u64,
+    pub edge_capacity_before: u64,
+    pub edge_capacity_after: u64,
 }
+
 
 impl BuildStats {
     pub fn to_json(self, profile: BuildProfile) -> String {
         format!(
-            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {},\n  \"bitset_resizes\": {},\n  \"bitset_cleared_edges\": {},\n  \"touched_first_buckets\": {},\n  \"scratch_bytes\": {},\n  \"bitset_scratch_bytes\": {},\n  \"first_bitset_scratch_bytes\": {},\n  \"edge_scratch_capacity_bytes\": {},\n  \"sort_scratch_capacity_bytes\": {},\n  \"lower_scratch_capacity_bytes\": {},\n  \"summary_scratch_capacity_bytes\": {},\n  \"group_bucket_scratch_bytes\": {},\n  \"max_chunk_uncompressed_bytes\": {},\n  \"max_chunk_compressed_bytes\": {},\n  \"max_chunk_summary_bytes\": {}\n}}\n",
+            "{{\n  \"build_profile\": \"{}\",\n  \"chunks\": {},\n  \"summary_ns\": {},\n  \"zstd_ns\": {},\n  \"write_ns\": {},\n  \"total_ns\": {},\n  \"summary_bytes\": {},\n  \"compressed_bytes\": {},\n  \"uncompressed_bytes\": {},\n  \"raw_edge_windows\": {},\n  \"candidate_edge_events\": {},\n  \"pushed_edges\": {},\n  \"unique_edges\": {},\n  \"bitset_resizes\": {},\n  \"bitset_cleared_edges\": {},\n  \"touched_first_buckets\": {},\n  \"scratch_bytes\": {},\n  \"bitset_scratch_bytes\": {},\n  \"first_bitset_scratch_bytes\": {},\n  \"edge_scratch_capacity_bytes\": {},\n  \"edge_capacity_before\": {},\n  \"edge_capacity_after\": {},\n  \"sort_scratch_capacity_bytes\": {},\n  \"lower_scratch_capacity_bytes\": {},\n  \"summary_scratch_capacity_bytes\": {},\n  \"group_bucket_scratch_bytes\": {},\n  \"max_chunk_uncompressed_bytes\": {},\n  \"max_chunk_compressed_bytes\": {},\n  \"max_chunk_summary_bytes\": {}\n}}\n",
             profile.as_str(),
             self.chunks,
             self.summary_ns,
@@ -330,6 +358,7 @@ impl BuildStats {
             self.compressed_bytes,
             self.uncompressed_bytes,
             self.raw_edge_windows,
+            self.candidate_edge_events,
             self.pushed_edges,
             self.unique_edges,
             self.bitset_resizes,
@@ -339,6 +368,8 @@ impl BuildStats {
             self.bitset_scratch_bytes,
             self.first_bitset_scratch_bytes,
             self.edge_scratch_capacity_bytes,
+            self.edge_capacity_before,
+            self.edge_capacity_after,
             self.sort_scratch_capacity_bytes,
             self.lower_scratch_capacity_bytes,
             self.summary_scratch_capacity_bytes,
@@ -369,6 +400,7 @@ pub struct ZlgWriter<W: Write> {
     mesh_group_buckets_scratch: Vec<Vec<u32>>,
     mesh_lower_scratch: Vec<u8>,
     mesh_summary_scratch: Vec<u8>,
+    mesh_prev_unique_edges: usize,
     zstd_compressor: Option<zstd::bulk::Compressor<'static>>,
 }
 
@@ -434,6 +466,7 @@ impl<W: Write> ZlgWriter<W> {
             mesh_group_buckets_scratch: Vec::new(),
             mesh_lower_scratch: Vec::new(),
             mesh_summary_scratch: Vec::new(),
+            mesh_prev_unique_edges: 0,
             zstd_compressor,
         })
     }
@@ -508,6 +541,36 @@ impl<W: Write> ZlgWriter<W> {
                         &mut self.mesh_bitset_scratch,
                         &mut self.mesh_edges_scratch,
                         &mut self.mesh_summary_scratch,
+                    )
+                }
+                BuildProfile::CombinedBitsetSeenReserveNone => {
+                    encode_bigram_mesh_summary_bitset_seen_with_reserve_into(
+                        &chunk.data,
+                        &mut self.mesh_bitset_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                        EdgeReserveStrategy::None,
+                        self.mesh_prev_unique_edges,
+                    )
+                }
+                BuildProfile::CombinedBitsetSeenReserveCapped => {
+                    encode_bigram_mesh_summary_bitset_seen_with_reserve_into(
+                        &chunk.data,
+                        &mut self.mesh_bitset_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                        EdgeReserveStrategy::Capped,
+                        self.mesh_prev_unique_edges,
+                    )
+                }
+                BuildProfile::CombinedBitsetSeenReservePrevUnique => {
+                    encode_bigram_mesh_summary_bitset_seen_with_reserve_into(
+                        &chunk.data,
+                        &mut self.mesh_bitset_scratch,
+                        &mut self.mesh_edges_scratch,
+                        &mut self.mesh_summary_scratch,
+                        EdgeReserveStrategy::PreviousUnique,
+                        self.mesh_prev_unique_edges,
                     )
                 }
                 BuildProfile::CombinedBitsetPagedSeen => {
@@ -659,6 +722,10 @@ impl<W: Write> ZlgWriter<W> {
         self.build_stats.raw_edge_windows += mesh_stats.raw_edge_windows;
         self.build_stats.pushed_edges += mesh_stats.pushed_edges;
         self.build_stats.unique_edges += mesh_stats.unique_edges;
+        self.build_stats.candidate_edge_events += mesh_stats.candidate_edge_events;
+        self.build_stats.edge_capacity_before = self.build_stats.edge_capacity_before.max(mesh_stats.edge_capacity_before);
+        self.build_stats.edge_capacity_after = self.build_stats.edge_capacity_after.max(mesh_stats.edge_capacity_after);
+        self.mesh_prev_unique_edges = mesh_stats.unique_edges as usize;
         self.build_stats.bitset_resizes += mesh_stats.bitset_resizes;
         self.build_stats.bitset_cleared_edges += mesh_stats.bitset_cleared_edges;
         self.build_stats.touched_first_buckets += mesh_stats.touched_first_buckets;
@@ -816,6 +883,13 @@ impl<R: Read> ZlgReader<R> {
     }
 
     pub fn next_raw_chunk(&mut self) -> Result<Option<RawChunk>> {
+        let Some(head) = self.next_chunk_head()? else {
+            return Ok(None);
+        };
+        self.read_chunk_payload(head).map(Some)
+    }
+
+    pub fn next_chunk_head(&mut self) -> Result<Option<RawChunkHead>> {
         if self.finished {
             return Ok(None);
         }
@@ -842,23 +916,39 @@ impl<R: Read> ZlgReader<R> {
         }
 
         let header = self.read_chunk_header_after_magic()?;
-
         let mut summary_bytes = vec![0u8; header.summary_len as usize];
         self.reader
             .read_exact(&mut summary_bytes)
             .context("failed to read chunk search summary")?;
         let summary = SearchSummary::decode(&summary_bytes)?;
 
-        let mut compressed = vec![0u8; header.compressed_len as usize];
+        Ok(Some(RawChunkHead { header, summary }))
+    }
+
+    pub fn read_chunk_payload(&mut self, head: RawChunkHead) -> Result<RawChunk> {
+        let mut compressed = vec![0u8; head.header.compressed_len as usize];
         self.reader
             .read_exact(&mut compressed)
             .context("failed to read compressed chunk payload")?;
 
-        Ok(Some(RawChunk {
-            header,
-            summary,
+        Ok(RawChunk {
+            header: head.header,
+            summary: head.summary,
             compressed,
-        }))
+        })
+    }
+
+    pub fn skip_chunk_payload(&mut self, header: &ChunkHeader) -> Result<()> {
+        let mut remaining = header.compressed_len;
+        let mut buffer = [0u8; 64 * 1024];
+        while remaining > 0 {
+            let take = remaining.min(buffer.len() as u64) as usize;
+            self.reader
+                .read_exact(&mut buffer[..take])
+                .context("failed to skip compressed chunk payload")?;
+            remaining -= take as u64;
+        }
+        Ok(())
     }
 
     fn read_chunk_header_after_magic(&mut self) -> Result<ChunkHeader> {

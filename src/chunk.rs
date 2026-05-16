@@ -2,6 +2,9 @@ use anyhow::Result;
 use crc32fast::Hasher;
 use std::io::BufRead;
 
+const INITIAL_CHUNK_CAPACITY: usize = 256 * 1024;
+const MAX_RETAINED_LINE_CAPACITY: usize = 1024 * 1024;
+
 #[derive(Clone, Copy, Debug)]
 pub enum ChunkPolicy {
     FixedLines { lines: u64, byte_cap: Option<usize> },
@@ -101,6 +104,7 @@ pub struct Chunker {
     next_index: u64,
     next_line_number: u64,
     pending_line: Vec<u8>,
+    line_scratch: Vec<u8>,
 }
 
 impl Chunker {
@@ -110,6 +114,7 @@ impl Chunker {
             next_index: 0,
             next_line_number: 1,
             pending_line: Vec::new(),
+            line_scratch: Vec::new(),
         }
     }
 
@@ -117,40 +122,39 @@ impl Chunker {
         let line_limit = self.current_line_limit();
         let byte_cap = self.current_byte_cap();
 
-        let mut data = Vec::new();
-        let mut line = Vec::new();
+        let mut data = Vec::with_capacity(self.initial_chunk_capacity());
         let mut line_count = 0u64;
         let mut crc32 = Hasher::new();
         let mut oversized_line = false;
 
         loop {
             if self.pending_line.is_empty() {
-                line.clear();
-                let bytes_read = reader.read_until(b'\n', &mut line)?;
+                self.line_scratch.clear();
+                let bytes_read = reader.read_until(b'\n', &mut self.line_scratch)?;
                 if bytes_read == 0 {
                     break;
                 }
             } else {
-                line.clear();
-                line.extend_from_slice(&self.pending_line);
-                self.pending_line.clear();
+                self.line_scratch.clear();
+                std::mem::swap(&mut self.line_scratch, &mut self.pending_line);
             }
 
-            if data.is_empty() && byte_cap.is_some_and(|cap| line.len() > cap) {
+            let line_len = self.line_scratch.len();
+            if data.is_empty() && byte_cap.is_some_and(|cap| line_len > cap) {
                 oversized_line = true;
-                data.extend_from_slice(&line);
-                crc32.update(&line);
+                data.extend_from_slice(&self.line_scratch);
+                crc32.update(&self.line_scratch);
                 line_count += 1;
                 break;
             }
 
-            if !data.is_empty() && byte_cap.is_some_and(|cap| data.len() + line.len() > cap) {
-                self.pending_line.extend_from_slice(&line);
+            if !data.is_empty() && byte_cap.is_some_and(|cap| data.len() + line_len > cap) {
+                std::mem::swap(&mut self.pending_line, &mut self.line_scratch);
                 break;
             }
 
-            data.extend_from_slice(&line);
-            crc32.update(&line);
+            data.extend_from_slice(&self.line_scratch);
+            crc32.update(&self.line_scratch);
             line_count += 1;
 
             if line_count >= line_limit {
@@ -159,8 +163,11 @@ impl Chunker {
         }
 
         if data.is_empty() {
+            self.trim_line_scratch_if_empty();
             return Ok(None);
         }
+
+        self.trim_line_scratch_if_empty();
 
         let chunk = PlainChunk {
             index: self.next_index,
@@ -175,6 +182,18 @@ impl Chunker {
         self.next_line_number += line_count;
 
         Ok(Some(chunk))
+    }
+
+    fn initial_chunk_capacity(&self) -> usize {
+        self.current_byte_cap()
+            .map(|cap| cap.min(INITIAL_CHUNK_CAPACITY))
+            .unwrap_or(INITIAL_CHUNK_CAPACITY)
+    }
+
+    fn trim_line_scratch_if_empty(&mut self) {
+        if self.line_scratch.is_empty() && self.line_scratch.capacity() > MAX_RETAINED_LINE_CAPACITY {
+            self.line_scratch.shrink_to(MAX_RETAINED_LINE_CAPACITY);
+        }
     }
 
     fn current_line_limit(&self) -> u64 {

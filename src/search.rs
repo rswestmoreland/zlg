@@ -542,7 +542,7 @@ fn collect_bigram_edges_unique(
     }
 }
 
-fn radix_sort_u24(values: &mut Vec<u32>, scratch: &mut Vec<u32>) {
+fn radix_sort_u24(values: &mut [u32], scratch: &mut Vec<u32>) {
     if values.len() < 2 {
         return;
     }

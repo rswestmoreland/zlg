@@ -299,7 +299,7 @@ pub struct ZlgWriter<W: Write> {
 }
 
 impl<W: Write> ZlgWriter<W> {
-pub fn new_with_profile(
+    pub fn new_with_profile(
         writer: W,
         chunk_policy_id: u32,
         level: i32,
@@ -851,7 +851,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn reader_rejects_invalid_global_magic() {
         let err = ZlgReader::new(Cursor::new(b"not-zlg!".to_vec())).unwrap_err();
@@ -862,7 +861,8 @@ mod tests {
     fn reader_rejects_excessive_summary_length_before_allocating() {
         let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
         let summary_len_offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8 + 8;
-        archive[summary_len_offset..summary_len_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        archive[summary_len_offset..summary_len_offset + 4]
+            .copy_from_slice(&u32::MAX.to_le_bytes());
 
         let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
         let err = reader.next_raw_chunk().unwrap_err();
@@ -962,5 +962,4 @@ mod tests {
         let offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8;
         u64::from_le_bytes(archive[offset..offset + 8].try_into().unwrap())
     }
-
 }

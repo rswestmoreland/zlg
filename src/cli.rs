@@ -194,7 +194,6 @@ impl From<CompressionModeArg> for CompressionMode {
     }
 }
 
-
 #[derive(Debug, Args)]
 pub struct ConvertArgs {
     pub input: PathBuf,
@@ -332,14 +331,8 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
     let summary_mode: SearchSummaryMode = args.summary_mode.into();
     let build_profile: BuildProfile = args.build_profile.into();
 
-    let build_stats = write_zlg_from_reader(
-        input,
-        output,
-        mode,
-        policy,
-        summary_mode,
-        build_profile,
-    )?;
+    let build_stats =
+        write_zlg_from_reader(input, output, mode, policy, summary_mode, build_profile)?;
 
     if let Some(path) = args.build_stats_json {
         std::fs::write(path, build_stats.to_json(build_profile))
@@ -434,13 +427,19 @@ impl ConvertOutput {
             .write(true)
             .create_new(true)
             .open(&self.temp_path)
-            .with_context(|| format!("failed to create temporary output {}", self.temp_path.display()))
+            .with_context(|| {
+                format!(
+                    "failed to create temporary output {}",
+                    self.temp_path.display()
+                )
+            })
     }
 
     fn commit(self, force: bool) -> Result<()> {
         if force && self.final_path.exists() {
-            std::fs::remove_file(&self.final_path)
-                .with_context(|| format!("failed to replace output {}", self.final_path.display()))?;
+            std::fs::remove_file(&self.final_path).with_context(|| {
+                format!("failed to replace output {}", self.final_path.display())
+            })?;
         }
         std::fs::rename(&self.temp_path, &self.final_path).with_context(|| {
             format!(
@@ -523,7 +522,10 @@ fn convert_output_path(input: &Path, output: Option<&PathBuf>) -> Result<PathBuf
     let mut output = input.to_path_buf();
     output.set_extension("zlg");
     if output == input {
-        return Err(anyhow!("failed to infer output path for {}", input.display()));
+        return Err(anyhow!(
+            "failed to infer output path for {}",
+            input.display()
+        ));
     }
     Ok(output)
 }
@@ -1794,5 +1796,4 @@ mod tests {
         assert!(compressed_input_kind(Path::new("app.log")).is_err());
         assert!(compressed_input_kind(Path::new("app")).is_err());
     }
-
 }

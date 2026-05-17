@@ -92,7 +92,7 @@ For file inputs, `info` uses metadata and avoids decoding all chunks. It reports
 
 ### stats
 
-For file inputs, `stats` uses metadata and keeps wc-style normal output:
+For file inputs, `stats` uses metadata. Phase 2e changes normal text output from the initial wc-style placeholder into a screenshot-friendly archive report while preserving `--json` for scripts:
 
 ```text
 <lines> <bytes>

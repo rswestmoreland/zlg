@@ -10,7 +10,7 @@ use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::collections::VecDeque;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
@@ -213,6 +213,9 @@ pub struct CompressArgs {
 
     #[arg(long, hide = true)]
     pub build_stats_json: Option<PathBuf>,
+
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -221,6 +224,9 @@ pub struct CatArgs {
 
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -234,6 +240,12 @@ pub struct HeadTailArgs {
 #[derive(Debug, Args)]
 pub struct TestArgs {
     pub input: Option<PathBuf>,
+
+    #[arg(long)]
+    pub json: bool,
+
+    #[arg(long)]
+    pub quiet: bool,
 }
 
 #[derive(Debug, Args)]
@@ -295,7 +307,7 @@ pub struct GrepArgs {
 
 pub fn run_compress(args: CompressArgs) -> Result<()> {
     let input = open_input(args.input.as_ref())?;
-    let output = open_output(args.output.as_ref())?;
+    let output = open_output(args.output.as_ref(), args.force)?;
     let mode: CompressionMode = args.mode.into();
     let policy: ChunkPolicy = args.chunk_policy.into();
     let summary_mode: SearchSummaryMode = args.summary_mode.into();
@@ -325,7 +337,7 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
 
 pub fn run_cat(args: CatArgs) -> Result<()> {
     let input = open_input(args.input.as_ref())?;
-    let output = open_output(args.output.as_ref())?;
+    let output = open_output(args.output.as_ref(), args.force)?;
 
     let mut reader = ZlgReader::new(BufReader::new(input))?;
     let mut writer = BufWriter::new(output);
@@ -807,6 +819,21 @@ fn write_tail_lines(lines: VecDeque<Vec<u8>>) -> Result<()> {
 }
 
 pub fn run_test(args: TestArgs) -> Result<()> {
+    if args.json && args.quiet {
+        return Err(anyhow!("cannot combine --json and --quiet"));
+    }
+
+    let expected_metadata = if let Some(path) = args.input.as_ref() {
+        let mut file =
+            File::open(path).with_context(|| format!("failed to open input {}", path.display()))?;
+        Some(
+            read_archive_metadata(&mut file)
+                .with_context(|| format!("failed to read zlg metadata from {}", path.display()))?,
+        )
+    } else {
+        None
+    };
+
     let input = open_input(args.input.as_ref())?;
     let mut reader = ZlgReader::new(BufReader::new(input))?;
     let mut chunks = 0u64;
@@ -814,13 +841,68 @@ pub fn run_test(args: TestArgs) -> Result<()> {
     let mut bytes = 0u64;
 
     while let Some(raw_chunk) = reader.next_raw_chunk()? {
-        let decoded = raw_chunk.decode()?;
+        let chunk_index = raw_chunk.header.chunk_index;
+        let decoded = raw_chunk
+            .decode()
+            .with_context(|| format!("failed to decode zlg chunk {chunk_index}"))?;
         chunks += 1;
         lines += decoded.header.line_count;
         bytes += decoded.data.len() as u64;
     }
 
-    eprintln!("ok chunks={chunks} lines={lines} bytes={bytes}");
+    if let Some(metadata) = expected_metadata.as_ref() {
+        if chunks != metadata.chunk_count {
+            return Err(anyhow!(
+                "zlg test chunk count mismatch: decoded {}, metadata {}",
+                chunks,
+                metadata.chunk_count
+            ));
+        }
+        if lines != metadata.total_lines {
+            return Err(anyhow!(
+                "zlg test line count mismatch: decoded {}, metadata {}",
+                lines,
+                metadata.total_lines
+            ));
+        }
+        if bytes != metadata.total_uncompressed_bytes {
+            return Err(anyhow!(
+                "zlg test byte count mismatch: decoded {}, metadata {}",
+                bytes,
+                metadata.total_uncompressed_bytes
+            ));
+        }
+    }
+
+    if args.quiet {
+        return Ok(());
+    }
+
+    if args.json {
+        println!(
+            "{{\n  \"status\": \"ok\",\n  \"chunks\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"metadata_checked\": {}\n}}",
+            chunks,
+            lines,
+            bytes,
+            expected_metadata.is_some()
+        );
+    } else {
+        println!("zlg test");
+        println!("========");
+        println!("status: ok");
+        println!("chunks: {chunks}");
+        println!("lines: {lines}");
+        println!("uncompressed-bytes: {bytes}");
+        println!(
+            "metadata: {}",
+            if expected_metadata.is_some() {
+                "checked"
+            } else {
+                "streamed"
+            }
+        );
+    }
+
     Ok(())
 }
 
@@ -891,6 +973,52 @@ impl ArchiveStats {
 
     fn total_component_bytes(&self) -> u64 {
         self.payload_bytes + self.summary_bytes + self.directory_bytes
+    }
+
+    fn metadata_bytes(&self) -> u64 {
+        self.summary_bytes + self.directory_bytes
+    }
+
+    fn container_overhead_bytes(&self) -> Option<u64> {
+        self.file_bytes.map(|file_bytes| {
+            file_bytes.saturating_sub(self.payload_bytes + self.summary_bytes + self.directory_bytes)
+        })
+    }
+
+    fn compression_ratio(&self) -> Option<f64> {
+        self.file_bytes.and_then(|file_bytes| {
+            if file_bytes == 0 {
+                None
+            } else {
+                Some(self.uncompressed_bytes as f64 / file_bytes as f64)
+            }
+        })
+    }
+
+    fn archive_percent_of_raw(&self) -> Option<f64> {
+        self.file_bytes.and_then(|file_bytes| {
+            if self.uncompressed_bytes == 0 {
+                None
+            } else {
+                Some(file_bytes as f64 / self.uncompressed_bytes as f64 * 100.0)
+            }
+        })
+    }
+
+    fn avg_lines_per_chunk(&self) -> Option<f64> {
+        if self.chunks == 0 {
+            None
+        } else {
+            Some(self.lines as f64 / self.chunks as f64)
+        }
+    }
+
+    fn avg_uncompressed_bytes_per_chunk(&self) -> Option<f64> {
+        if self.chunks == 0 {
+            None
+        } else {
+            Some(self.uncompressed_bytes as f64 / self.chunks as f64)
+        }
     }
 
     fn compression_mode_name(&self) -> &'static str {
@@ -964,7 +1092,8 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
     let stats = ArchiveStats::read(&args)?;
     if args.json {
         println!(
-            "{{\n  \"lines\": {},\n  \"bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"directory_offset\": {},\n  \"directory_bytes\": {},\n  \"archive_bytes\": {},\n  \"used_metadata\": {}\n}}",
+            "{{\n  \"format\": \"zlg\",\n  \"format_version\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"directory_offset\": {},\n  \"directory_bytes\": {},\n  \"metadata_bytes\": {},\n  \"container_overhead_bytes\": {},\n  \"archive_bytes\": {},\n  \"compression_ratio\": {},\n  \"archive_percent_of_raw\": {},\n  \"avg_lines_per_chunk\": {},\n  \"avg_uncompressed_bytes_per_chunk\": {},\n  \"compression_mode\": \"{}\",\n  \"chunk_policy\": \"{}\",\n  \"used_metadata\": {}\n}}",
+            json_u16_or_null(stats.format_version),
             stats.lines,
             stats.uncompressed_bytes,
             stats.chunks,
@@ -972,13 +1101,130 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
             stats.summary_bytes,
             json_u64_or_null(stats.directory_offset),
             stats.directory_bytes,
+            stats.metadata_bytes(),
+            json_u64_or_null(stats.container_overhead_bytes()),
             json_u64_or_null(stats.file_bytes),
+            json_f64_or_null(stats.compression_ratio()),
+            json_f64_or_null(stats.archive_percent_of_raw()),
+            json_f64_or_null(stats.avg_lines_per_chunk()),
+            json_f64_or_null(stats.avg_uncompressed_bytes_per_chunk()),
+            stats.compression_mode_name(),
+            stats.chunk_policy_name(),
             stats.used_metadata
         );
     } else {
-        println!("{} {}", stats.lines, stats.uncompressed_bytes);
+        print_stats_report(&stats);
     }
     Ok(())
+}
+
+fn print_stats_report(stats: &ArchiveStats) {
+    println!("zlg archive stats");
+    println!("=================");
+    println!();
+    println!("Content");
+    print_stat_row("Lines", format_count(stats.lines));
+    print_stat_row("Uncompressed bytes", format_bytes(stats.uncompressed_bytes));
+    print_stat_row("Chunks", format_count(stats.chunks));
+    print_stat_row("Avg lines/chunk", format_optional_float(stats.avg_lines_per_chunk(), 1));
+    print_stat_row(
+        "Avg raw bytes/chunk",
+        format_optional_bytes_float(stats.avg_uncompressed_bytes_per_chunk()),
+    );
+    println!();
+    println!("Storage");
+    print_stat_row("Archive bytes", format_optional_bytes(stats.file_bytes));
+    print_stat_row("Payload bytes", format_bytes(stats.payload_bytes));
+    print_stat_row("Summary bytes", format_bytes(stats.summary_bytes));
+    print_stat_row("Directory bytes", format_bytes(stats.directory_bytes));
+    print_stat_row(
+        "Other overhead bytes",
+        format_optional_bytes(stats.container_overhead_bytes()),
+    );
+    print_stat_row("Compression ratio", format_ratio(stats.compression_ratio()));
+    print_stat_row("Archive/raw size", format_percent(stats.archive_percent_of_raw()));
+    println!();
+    println!("Format");
+    print_stat_row("Compression mode", stats.compression_mode_name().to_string());
+    print_stat_row("Chunk policy", stats.chunk_policy_name().to_string());
+    print_stat_row("Format version", format_optional_u16(stats.format_version));
+    print_stat_row(
+        "Metadata source",
+        if stats.used_metadata {
+            "seekable".to_string()
+        } else {
+            "streamed".to_string()
+        },
+    );
+}
+
+fn print_stat_row(label: &str, value: String) {
+    println!("  {label:<28} {value}");
+}
+
+fn format_count(value: u64) -> String {
+    let raw = value.to_string();
+    let mut out = String::new();
+    for (index, ch) in raw.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
+}
+
+fn format_bytes(value: u64) -> String {
+    let human = if value >= 1024 * 1024 * 1024 {
+        format!("{:.2} GiB", value as f64 / 1024.0 / 1024.0 / 1024.0)
+    } else if value >= 1024 * 1024 {
+        format!("{:.2} MiB", value as f64 / 1024.0 / 1024.0)
+    } else if value >= 1024 {
+        format!("{:.2} KiB", value as f64 / 1024.0)
+    } else {
+        "".to_string()
+    };
+
+    if human.is_empty() {
+        format!("{} B", format_count(value))
+    } else {
+        format!("{} B ({human})", format_count(value))
+    }
+}
+
+fn format_optional_bytes(value: Option<u64>) -> String {
+    value.map(format_bytes).unwrap_or_else(|| "unknown".to_string())
+}
+
+fn format_optional_bytes_float(value: Option<f64>) -> String {
+    value
+        .map(|value| format_bytes(value.round().max(0.0) as u64))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn format_optional_float(value: Option<f64>, precision: usize) -> String {
+    match value {
+        Some(value) => format!("{value:.precision$}"),
+        None => "unknown".to_string(),
+    }
+}
+
+fn format_ratio(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.2}x"))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn format_percent(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.2}%"))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn format_optional_u16(value: Option<u16>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 pub fn run_version(args: VersionArgs) -> Result<()> {
@@ -1010,6 +1256,12 @@ fn json_u64_or_null(value: Option<u64>) -> String {
 fn json_u16_or_null(value: Option<u16>) -> String {
     value
         .map(|value| value.to_string())
+        .unwrap_or_else(|| "null".to_string())
+}
+
+fn json_f64_or_null(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.6}"))
         .unwrap_or_else(|| "null".to_string())
 }
 
@@ -1059,11 +1311,26 @@ fn open_input(path: Option<&PathBuf>) -> Result<Box<dyn Read>> {
     }
 }
 
-fn open_output(path: Option<&PathBuf>) -> Result<Box<dyn Write>> {
+fn open_output(path: Option<&PathBuf>, force: bool) -> Result<Box<dyn Write>> {
     match path {
         Some(path) => {
-            let file = File::create(path)
-                .with_context(|| format!("failed to create output {}", path.display()))?;
+            let mut options = OpenOptions::new();
+            options.write(true);
+            if force {
+                options.create(true).truncate(true);
+            } else {
+                options.create_new(true);
+            }
+            let file = options.open(path).with_context(|| {
+                if force {
+                    format!("failed to create output {}", path.display())
+                } else {
+                    format!(
+                        "failed to create output {} (use --force to overwrite)",
+                        path.display()
+                    )
+                }
+            })?;
             Ok(Box::new(file))
         }
         None => Ok(Box::new(io::stdout().lock())),
@@ -1101,6 +1368,7 @@ mod tests {
         assert!(!help.contains("--summary-mode"));
         assert!(!help.contains("--build-profile"));
         assert!(!help.contains("--build-stats-json"));
+        assert!(help.contains("--force"));
     }
 
     #[test]
@@ -1121,6 +1389,18 @@ mod tests {
         assert!(!help.contains("--stats-json"));
     }
 
+
+    #[test]
+    fn test_help_exposes_json_and_quiet_options() {
+        let mut command = Cli::command();
+        let test = command
+            .find_subcommand_mut("test")
+            .expect("test subcommand exists");
+        let help = test.render_long_help().to_string();
+        assert!(help.contains("--json"));
+        assert!(help.contains("--quiet"));
+    }
+
     #[test]
     fn version_long_defaults_are_available() {
         assert_eq!(zlg_format_version(), 1);
@@ -1128,5 +1408,14 @@ mod tests {
         assert_eq!(default_chunk_policy_name(), "fixed-lines8192-cap8m");
         assert_eq!(default_summary_type_name(), "mesh-bigram ZBM1 v2");
         assert_eq!(default_build_profile_name(), "combined-bitset-seen");
+    }
+
+    #[test]
+    fn stats_formatting_is_screenshot_friendly() {
+        assert_eq!(format_count(1_234_567), "1,234,567");
+        assert_eq!(format_bytes(999), "999 B");
+        assert!(format_bytes(2 * 1024 * 1024).contains("2.00 MiB"));
+        assert_eq!(format_ratio(Some(3.25)), "3.25x");
+        assert_eq!(format_percent(Some(12.5)), "12.50%");
     }
 }

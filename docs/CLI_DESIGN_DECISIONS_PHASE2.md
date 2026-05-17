@@ -35,6 +35,7 @@ The default mode is `standard`.
 - Use `-p`, `--pcre2` instead of `-P`.
 - Use `-f`, `--fixed` instead of `-F`.
 - Use `--head` as the stop option; do not carry both `--head` and `--max-count`.
+- Use long-only `--force` for intentional output overwrite. Do not use short `-f` for force because `grep -f` is already locked for fixed-string search.
 
 ## Command style
 
@@ -88,7 +89,7 @@ The Phase 2 CLI validation/fix pass at commit 6eab4a3 passed the required Rust v
 
 ## Head/tail metadata
 
-Efficient `tail` requires line counts in the directory or metadata associated with chunks. Phase 2c uses the existing footer/directory metadata for file-backed `tail`, `info`, and `stats`.
+Efficient `tail` requires line counts in the directory or metadata associated with chunks. Phase 2c uses the existing footer/directory metadata for file-backed `tail`, `info`, and `stats`. Phase 2e keeps `stats` as a zlg-specific archive report rather than wc-style output. The safety pass refuses output overwrite by default and uses long-only `--force` for intentional replacement. Phase 2g adds `zlg test --json` and `zlg test --quiet`, and makes file-backed `zlg test` validate metadata totals against decoded totals.
 
 Store:
 
@@ -131,3 +132,8 @@ fast/standard/best levels 3/6/8
 summary-first search skip
 memchr line splitting
 ```
+
+
+## Test command output
+
+`zlg test` should be useful for both humans and scripts. Normal output is readable text, `--json` is for scripted validation, and `--quiet` is for exit-code-only checks. `--json` and `--quiet` conflict by design. For file-backed inputs, `zlg test` should validate both the seekable metadata and the decoded chunk payloads. For stdin, it should fall back to streaming validation.

@@ -1,0 +1,31 @@
+Phase 2g prep summary from ChatGPT sandbox
+
+Scope:
+- Add zlg test text/json/quiet output options.
+- Make file-backed zlg test validate seekable metadata totals against decoded totals.
+- Add Phase 2g archive hardening probe that mutates valid archives and checks rejection behavior.
+- Strengthen Phase 2 CLI smoke checks for zlg test output modes.
+- Add Phase 2g docs and next-chat validation/fix prompt.
+
+Files added:
+- tools/phase2g_archive_hardening_probe.py
+- scripts/phase2g_archive_hardening_once.sh
+- docs/PHASE2G_ARCHIVE_HARDENING_AND_TEST_OUTPUT.md
+- docs/ZLG_NEXT_CHAT_PROMPT_PHASE2G.md
+- validation_results/phase2g_chatgpt_prep_summary.txt
+
+Files updated:
+- src/cli.rs
+- scripts/phase2_cli_smoke.sh
+- README.md
+- docs/CLI_DESIGN_DECISIONS_PHASE2.md
+
+Sandbox checks run:
+- python3 -m py_compile tools/phase2g_archive_hardening_probe.py
+- bash -n scripts/phase2_cli_smoke.sh
+- bash -n scripts/phase2g_archive_hardening_once.sh
+- ASCII scan
+- path-length scan
+- zip integrity check
+
+Rust/Cargo/runtime validation not run in ChatGPT sandbox because cargo/rustc/rustfmt are unavailable here. Codex must validate and fix compile/test/clippy/runtime issues.

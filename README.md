@@ -2,7 +2,7 @@
 
 `zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, and Phase 2c was validated through commit d1179fc with seekable metadata use for file-backed info/stats/tail plus a compact performance smoke bench. Phase 2d prepares benchmark measurement reliability, larger needle-in-haystack testing, and head/tail comparisons. Top and convert remain design/deferred work.
+The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, and Phase 2d through commit 2c5b8c8. Phase 2e prepares option maturity, screenshot-friendly stats output, and a fast-vs-standard benchmark comparison. The current pre-validation package also adds output overwrite safety with long-only `--force` and Phase 2g archive hardening checks. Top and convert remain design/deferred work.
 
 ## Current status
 
@@ -48,7 +48,8 @@ The default compression mode is `standard`.
 - Use `-p`, `--pcre2` for PCRE2 mode.
 - Include `head` and `tail` as first-class commands.
 - Store and use line-count and byte-count metadata so file-backed `tail`, `info`, and `stats` can be efficient.
-- Put wc-style behavior under `stats`, not a separate `wc` command.
+- Keep `stats` as a pleasant zlg-specific report, with `--json` for scripts. Do not add a separate `wc` command.
+- Refuse to overwrite output files by default; use long-only `--force` when replacement is intentional.
 - Keep sort/uniq design open, likely through top/extract/count/sort workflows first.
 - Keep conversion support lean; plain and `.zst` should be straightforward, `.gz` should be measured for binary-size impact before locking.
 
@@ -78,15 +79,15 @@ Implemented and validated in Phase 2:
 
 - `zlg help` through the normal clap help command path
 - `zlg version`
-- `zlg compress` with `--mode <none|fast|standard|best>`
-- `zlg decompress`
-- `zlg cat`
+- `zlg compress` with `--mode <none|fast|standard|best>` and long-only `--force` for intentional overwrite
+- `zlg decompress` with long-only `--force` for intentional overwrite
+- `zlg cat` with long-only `--force` for intentional overwrite
 - `zlg grep` with lowercase `-f`, `-p`, and `--head`
 - `zlg head`
 - `zlg tail` with a seekable metadata path for file inputs
-- `zlg test`
+- `zlg test` with readable text output, `--json`, and `--quiet`
 - `zlg info` using metadata for file inputs
-- `zlg stats` using metadata for file inputs
+- `zlg stats` using metadata for file inputs, with readable text output and JSON output
 
 Deferred command design topics:
 
@@ -137,12 +138,24 @@ Phase 2c implemented and validated:
 - help/version/docs alignment
 - a compact performance smoke bench comparing plain `grep`, `zgrep`, and `zlg grep`
 
-Phase 2d prepares the next validation pass:
+Phase 2d implemented and validated:
 
 - reliable CPU/RSS capture using Linux `os.wait4()`
 - larger needle-in-haystack search testing
 - `head` and `tail` comparisons against raw logs and gzip streams
 - stronger output-hash parity checks for head/tail paths
+
+Phase 2e and Phase 2g prepare the next validation pass:
+
+- screenshot-friendly `zlg stats` text output
+- expanded `zlg stats --json` fields
+- fast-vs-standard performance comparison against gzip and plain log baselines
+- continued search/head/tail/tail_large output parity checks
+- output overwrite safety for `compress`, `cat`, and `decompress`
+- stronger smoke checks for `--force` and invalid archive rejection
+- `zlg test` text/json/quiet output modes
+- file-backed `zlg test` metadata totals checked against decoded totals
+- archive corruption probe for malformed metadata and payload cases
 
 Recommended active documents:
 
@@ -150,6 +163,11 @@ Recommended active documents:
 docs/CLI_DESIGN_DECISIONS_PHASE2.md
 docs/PHASE2C_METADATA_AND_PERF_SMOKE.md
 docs/PHASE2D_BENCH_RELIABILITY_HEAD_TAIL.md
+docs/PHASE2E_OPTIONS_STATS_AND_FAST_MODE_BENCH.md
 docs/BENCHMARK_MEASUREMENT_RELIABILITY.md
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2D.md
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2E.md
+docs/PHASE2F_CLI_SAFETY_AND_HARDENING.md
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2F.md
+docs/PHASE2G_ARCHIVE_HARDENING_AND_TEST_OUTPUT.md
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2G.md
 ```

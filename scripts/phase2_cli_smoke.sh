@@ -47,6 +47,7 @@ $zlg grep --help > "$workdir/grep_help.txt"
 grep -q -- '--head' "$workdir/grep_help.txt"
 grep -q -- '--fixed' "$workdir/grep_help.txt"
 grep -q -- '--pcre2' "$workdir/grep_help.txt"
+grep -q -- '--strict' "$workdir/grep_help.txt"
 if grep -q -- '--max-count\|-P,\|-F,\|--stats-json' "$workdir/grep_help.txt"; then
   echo "grep help exposed removed or hidden options" >&2
   exit 1
@@ -81,17 +82,26 @@ for mode in none fast standard best; do
     echo "expected test --json --quiet conflict to fail" >&2
     exit 1
   fi
-  $zlg info "$archive" >/dev/null
+  $zlg info "$archive" > "$workdir/${mode}_info.txt"
+  grep -q 'zlg archive info' "$workdir/${mode}_info.txt"
+  grep -q 'Format' "$workdir/${mode}_info.txt"
+  grep -q 'Archive' "$workdir/${mode}_info.txt"
+  grep -q 'Layout' "$workdir/${mode}_info.txt"
   $zlg info "$archive" --json >/dev/null
   $zlg stats "$archive" > "$workdir/${mode}_stats.txt"
   grep -q 'zlg archive stats' "$workdir/${mode}_stats.txt"
   grep -q 'Content' "$workdir/${mode}_stats.txt"
   grep -q 'Storage' "$workdir/${mode}_stats.txt"
+  grep -q 'Payload share' "$workdir/${mode}_stats.txt"
+  grep -q 'Metadata share' "$workdir/${mode}_stats.txt"
   grep -q 'Format' "$workdir/${mode}_stats.txt"
   $zlg stats "$archive" --json > "$workdir/${mode}_stats.json"
   grep -q '"compression_ratio"' "$workdir/${mode}_stats.json"
   grep -q '"archive_percent_of_raw"' "$workdir/${mode}_stats.json"
+  grep -q '"payload_percent_of_archive"' "$workdir/${mode}_stats.json"
+  grep -q '"metadata_percent_of_archive"' "$workdir/${mode}_stats.json"
   $zlg grep -f alpha "$archive" >/dev/null
+  $zlg grep --strict -f alpha "$archive" >/dev/null
   $zlg grep --head 1 alpha "$archive" >/dev/null
   $zlg head -n 2 "$archive" > "$workdir/${mode}_head.txt"
   head -n 2 "$input" > "$workdir/${mode}_head_expected.txt"
@@ -112,6 +122,38 @@ for mode in none fast standard best; do
     exit 1
   fi
 done
+
+
+edge_input="$workdir/edge_no_newline.log"
+printf 'first
+second
+third' > "$edge_input"
+edge_archive="$workdir/edge_no_newline.zlg"
+$zlg compress "$edge_input" -o "$edge_archive" --mode fast
+$zlg head -n 99 "$edge_archive" > "$workdir/edge_head_all.txt"
+cmp "$edge_input" "$workdir/edge_head_all.txt"
+$zlg tail -n 2 "$edge_archive" > "$workdir/edge_tail_two.txt"
+tail -n 2 "$edge_input" > "$workdir/edge_tail_two_expected.txt"
+cmp "$workdir/edge_tail_two_expected.txt" "$workdir/edge_tail_two.txt"
+
+empty_input="$workdir/empty.log"
+: > "$empty_input"
+empty_archive="$workdir/empty.zlg"
+$zlg compress "$empty_input" -o "$empty_archive" --mode fast
+$zlg head "$empty_archive" > "$workdir/empty_head.txt"
+test ! -s "$workdir/empty_head.txt"
+$zlg tail "$empty_archive" > "$workdir/empty_tail.txt"
+test ! -s "$workdir/empty_tail.txt"
+
+single_input="$workdir/single.log"
+printf 'single line
+' > "$single_input"
+single_archive="$workdir/single.zlg"
+$zlg compress "$single_input" -o "$single_archive" --mode fast
+$zlg head -n 5 "$single_archive" > "$workdir/single_head.txt"
+cmp "$single_input" "$workdir/single_head.txt"
+$zlg tail -n 5 "$single_archive" > "$workdir/single_tail.txt"
+cmp "$single_input" "$workdir/single_tail.txt"
 
 printf 'not a zlg archive\n' > "$workdir/not_zlg.bin"
 if $zlg test "$workdir/not_zlg.bin" >/dev/null 2>&1; then

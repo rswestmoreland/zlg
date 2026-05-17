@@ -233,7 +233,7 @@ def main() -> int:
         ("directory_count_mismatch", mutate_directory_count_mismatch, [["test"], ["info"], ["stats"], ["tail", "-n", "5"]]),
         ("payload_out_of_bounds", mutate_payload_out_of_bounds, [["test"], ["info"], ["stats"], ["tail", "-n", "5"]]),
         ("chunk_header_mismatch", mutate_chunk_header_mismatch, [["test"]]),
-        ("crc_mismatch", mutate_crc_mismatch, [["test"], ["cat"], ["grep", "seq=1"]]),
+        ("crc_mismatch", mutate_crc_mismatch, [["test"], ["cat"], ["grep", "seq=1"], ["grep", "--strict", "seq=1"]]),
         ("summary_truncated", mutate_summary_truncated, [["test"], ["cat"], ["grep", "needle"]]),
         ("payload_truncated", mutate_payload_truncated, [["test"], ["cat"], ["grep", "needle"]]),
     ]
@@ -242,7 +242,7 @@ def main() -> int:
         work = Path(tmp)
         for mode in ["fast", "standard"]:
             raw, valid = make_valid_archive(zlg, work, mode)
-            for check in [["test"], ["test", "--json"], ["test", "--quiet"], ["info"], ["stats"], ["head", "-n", "3"], ["tail", "-n", "3"]]:
+            for check in [["test"], ["test", "--json"], ["test", "--quiet"], ["info"], ["stats"], ["head", "-n", "3"], ["tail", "-n", "3"], ["grep", "--strict", "needle"]]:
                 ok, note = expect_ok(zlg, check, valid)
                 if not ok:
                     failures += 1

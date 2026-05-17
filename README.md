@@ -2,7 +2,7 @@
 
 `zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, and Phase 2d through commit 2c5b8c8. Phase 2e prepares option maturity, screenshot-friendly stats output, and a fast-vs-standard benchmark comparison. The current pre-validation package also adds output overwrite safety with long-only `--force` and Phase 2g archive hardening checks. Top and convert remain design/deferred work.
+The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, Phase 2d through commit 2c5b8c8, and Phase 2e/2g through commit 3623975. The current pre-validation package finishes Phase 2h-2l maturity work: `zlg grep --strict`, repeated-median benchmarks, polished info/stats output, and stronger head/tail edge coverage. Top and convert remain design/deferred work.
 
 ## Current status
 
@@ -82,7 +82,7 @@ Implemented and validated in Phase 2:
 - `zlg compress` with `--mode <none|fast|standard|best>` and long-only `--force` for intentional overwrite
 - `zlg decompress` with long-only `--force` for intentional overwrite
 - `zlg cat` with long-only `--force` for intentional overwrite
-- `zlg grep` with lowercase `-f`, `-p`, and `--head`
+- `zlg grep` with lowercase `-f`, `-p`, `--head`, and opt-in `--strict`
 - `zlg head`
 - `zlg tail` with a seekable metadata path for file inputs
 - `zlg test` with readable text output, `--json`, and `--quiet`
@@ -145,7 +145,7 @@ Phase 2d implemented and validated:
 - `head` and `tail` comparisons against raw logs and gzip streams
 - stronger output-hash parity checks for head/tail paths
 
-Phase 2e and Phase 2g prepare the next validation pass:
+Phase 2e and Phase 2g are validated and Phase 2h-2l prepare the next validation pass:
 
 - screenshot-friendly `zlg stats` text output
 - expanded `zlg stats --json` fields
@@ -156,6 +156,10 @@ Phase 2e and Phase 2g prepare the next validation pass:
 - `zlg test` text/json/quiet output modes
 - file-backed `zlg test` metadata totals checked against decoded totals
 - archive corruption probe for malformed metadata and payload cases
+- `zlg grep --strict` for opt-in candidate-chunk verification before output
+- repeated-median benchmark wrapper for fast-vs-standard results
+- polished `zlg info` layout and expanded component-share `zlg stats` fields
+- stronger `head` and `tail` edge-case smoke coverage
 
 Recommended active documents:
 
@@ -170,4 +174,6 @@ docs/PHASE2F_CLI_SAFETY_AND_HARDENING.md
 docs/ZLG_NEXT_CHAT_PROMPT_PHASE2F.md
 docs/PHASE2G_ARCHIVE_HARDENING_AND_TEST_OUTPUT.md
 docs/ZLG_NEXT_CHAT_PROMPT_PHASE2G.md
+docs/PHASE2H_TO_2L_FINAL_CLI_MATURITY.md
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2H_TO_2L.md
 ```

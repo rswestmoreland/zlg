@@ -303,6 +303,9 @@ pub struct GrepArgs {
 
     #[arg(long)]
     pub head: Option<usize>,
+
+    #[arg(long)]
+    pub strict: bool,
 }
 
 pub fn run_compress(args: CompressArgs) -> Result<()> {
@@ -425,7 +428,7 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
         files_with_matches: args.files_with_matches,
         invert_match: args.invert_match,
         max_count: args.head,
-        stream_decode: true,
+        stream_decode: !args.strict,
     };
 
     let matcher = Matcher::new(&args.pattern, options.clone())?;
@@ -550,6 +553,7 @@ fn grep_one(
             let decoded = raw_chunk.decode()?;
             stats.chunks_decoded += 1;
             stats.decoded_bytes += decoded.data.len() as u64;
+            stats.crc_checked_chunks += 1;
             let (chunk_matches, counters) = grep_decoded_chunk(
                 &decoded,
                 path,
@@ -986,6 +990,37 @@ impl ArchiveStats {
         })
     }
 
+    fn percent_of_archive(&self, value: u64) -> Option<f64> {
+        self.file_bytes.and_then(|file_bytes| {
+            if file_bytes == 0 {
+                None
+            } else {
+                Some(value as f64 / file_bytes as f64 * 100.0)
+            }
+        })
+    }
+
+    fn payload_percent_of_archive(&self) -> Option<f64> {
+        self.percent_of_archive(self.payload_bytes)
+    }
+
+    fn summary_percent_of_archive(&self) -> Option<f64> {
+        self.percent_of_archive(self.summary_bytes)
+    }
+
+    fn directory_percent_of_archive(&self) -> Option<f64> {
+        self.percent_of_archive(self.directory_bytes)
+    }
+
+    fn metadata_percent_of_archive(&self) -> Option<f64> {
+        self.percent_of_archive(self.metadata_bytes())
+    }
+
+    fn overhead_percent_of_archive(&self) -> Option<f64> {
+        self.container_overhead_bytes()
+            .and_then(|value| self.percent_of_archive(value))
+    }
+
     fn compression_ratio(&self) -> Option<f64> {
         self.file_bytes.and_then(|file_bytes| {
             if file_bytes == 0 {
@@ -1055,36 +1090,7 @@ pub fn run_info(args: InfoStatsArgs) -> Result<()> {
             stats.used_metadata
         );
     } else {
-        println!("format: zlg");
-        if let Some(version) = stats.format_version {
-            println!("format-version: {version}");
-        }
-        if let Some(flags) = stats.flags {
-            println!("flags: {flags}");
-        }
-        println!("chunks: {}", stats.chunks);
-        println!("lines: {}", stats.lines);
-        println!("uncompressed-bytes: {}", stats.uncompressed_bytes);
-        println!("payload-bytes: {}", stats.payload_bytes);
-        println!("summary-bytes: {}", stats.summary_bytes);
-        if let Some(directory_offset) = stats.directory_offset {
-            println!("directory-offset: {directory_offset}");
-        }
-        println!("directory-bytes: {}", stats.directory_bytes);
-        println!("known-component-bytes: {}", stats.total_component_bytes());
-        if let Some(file_bytes) = stats.file_bytes {
-            println!("archive-bytes: {file_bytes}");
-        }
-        println!("compression-mode: {}", stats.compression_mode_name());
-        println!("chunk-policy: {}", stats.chunk_policy_name());
-        println!(
-            "metadata: {}",
-            if stats.used_metadata {
-                "seekable"
-            } else {
-                "streamed"
-            }
-        );
+        print_info_report(&stats);
     }
     Ok(())
 }
@@ -1093,7 +1099,7 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
     let stats = ArchiveStats::read(&args)?;
     if args.json {
         println!(
-            "{{\n  \"format\": \"zlg\",\n  \"format_version\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"directory_offset\": {},\n  \"directory_bytes\": {},\n  \"metadata_bytes\": {},\n  \"container_overhead_bytes\": {},\n  \"archive_bytes\": {},\n  \"compression_ratio\": {},\n  \"archive_percent_of_raw\": {},\n  \"avg_lines_per_chunk\": {},\n  \"avg_uncompressed_bytes_per_chunk\": {},\n  \"compression_mode\": \"{}\",\n  \"chunk_policy\": \"{}\",\n  \"used_metadata\": {}\n}}",
+            "{{\n  \"format\": \"zlg\",\n  \"format_version\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"directory_offset\": {},\n  \"directory_bytes\": {},\n  \"metadata_bytes\": {},\n  \"container_overhead_bytes\": {},\n  \"archive_bytes\": {},\n  \"payload_percent_of_archive\": {},\n  \"summary_percent_of_archive\": {},\n  \"directory_percent_of_archive\": {},\n  \"metadata_percent_of_archive\": {},\n  \"overhead_percent_of_archive\": {},\n  \"compression_ratio\": {},\n  \"archive_percent_of_raw\": {},\n  \"avg_lines_per_chunk\": {},\n  \"avg_uncompressed_bytes_per_chunk\": {},\n  \"compression_mode\": \"{}\",\n  \"chunk_policy\": \"{}\",\n  \"used_metadata\": {}\n}}",
             json_u16_or_null(stats.format_version),
             stats.lines,
             stats.uncompressed_bytes,
@@ -1105,6 +1111,11 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
             stats.metadata_bytes(),
             json_u64_or_null(stats.container_overhead_bytes()),
             json_u64_or_null(stats.file_bytes),
+            json_f64_or_null(stats.payload_percent_of_archive()),
+            json_f64_or_null(stats.summary_percent_of_archive()),
+            json_f64_or_null(stats.directory_percent_of_archive()),
+            json_f64_or_null(stats.metadata_percent_of_archive()),
+            json_f64_or_null(stats.overhead_percent_of_archive()),
             json_f64_or_null(stats.compression_ratio()),
             json_f64_or_null(stats.archive_percent_of_raw()),
             json_f64_or_null(stats.avg_lines_per_chunk()),
@@ -1117,6 +1128,44 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
         print_stats_report(&stats);
     }
     Ok(())
+}
+
+fn print_info_report(stats: &ArchiveStats) {
+    println!("zlg archive info");
+    println!("================");
+    println!();
+    println!("Format");
+    print_stat_row("Type", "zlg".to_string());
+    print_stat_row("Format version", format_optional_u16(stats.format_version));
+    print_stat_row("Compression mode", stats.compression_mode_name().to_string());
+    print_stat_row("Chunk policy", stats.chunk_policy_name().to_string());
+    print_stat_row(
+        "Metadata source",
+        if stats.used_metadata {
+            "seekable".to_string()
+        } else {
+            "streamed".to_string()
+        },
+    );
+    if let Some(flags) = stats.flags {
+        print_stat_row("Flags", flags.to_string());
+    }
+    println!();
+    println!("Archive");
+    print_stat_row("Chunks", format_count(stats.chunks));
+    print_stat_row("Lines", format_count(stats.lines));
+    print_stat_row("Uncompressed bytes", format_bytes(stats.uncompressed_bytes));
+    print_stat_row("Archive bytes", format_optional_bytes(stats.file_bytes));
+    print_stat_row("Compression ratio", format_ratio(stats.compression_ratio()));
+    println!();
+    println!("Layout");
+    print_stat_row("Payload bytes", format_bytes(stats.payload_bytes));
+    print_stat_row("Summary bytes", format_bytes(stats.summary_bytes));
+    print_stat_row("Directory bytes", format_bytes(stats.directory_bytes));
+    print_stat_row("Other overhead bytes", format_optional_bytes(stats.container_overhead_bytes()));
+    if let Some(directory_offset) = stats.directory_offset {
+        print_stat_row("Directory offset", format_bytes(directory_offset));
+    }
 }
 
 fn print_stats_report(stats: &ArchiveStats) {
@@ -1139,12 +1188,17 @@ fn print_stats_report(stats: &ArchiveStats) {
     println!("Storage");
     print_stat_row("Archive bytes", format_optional_bytes(stats.file_bytes));
     print_stat_row("Payload bytes", format_bytes(stats.payload_bytes));
+    print_stat_row("Payload share", format_percent(stats.payload_percent_of_archive()));
     print_stat_row("Summary bytes", format_bytes(stats.summary_bytes));
+    print_stat_row("Summary share", format_percent(stats.summary_percent_of_archive()));
     print_stat_row("Directory bytes", format_bytes(stats.directory_bytes));
+    print_stat_row("Directory share", format_percent(stats.directory_percent_of_archive()));
+    print_stat_row("Metadata share", format_percent(stats.metadata_percent_of_archive()));
     print_stat_row(
         "Other overhead bytes",
         format_optional_bytes(stats.container_overhead_bytes()),
     );
+    print_stat_row("Other overhead share", format_percent(stats.overhead_percent_of_archive()));
     print_stat_row("Compression ratio", format_ratio(stats.compression_ratio()));
     print_stat_row(
         "Archive/raw size",
@@ -1395,6 +1449,7 @@ mod tests {
         assert!(help.contains("-p"));
         assert!(help.contains("--pcre2"));
         assert!(help.contains("--head"));
+        assert!(help.contains("--strict"));
         assert!(!help.contains("--max-count"));
         assert!(!help.contains("-P,"));
         assert!(!help.contains("-F,"));
@@ -1428,5 +1483,14 @@ mod tests {
         assert!(format_bytes(2 * 1024 * 1024).contains("2.00 MiB"));
         assert_eq!(format_ratio(Some(3.25)), "3.25x");
         assert_eq!(format_percent(Some(12.5)), "12.50%");
+        let stats = ArchiveStats {
+            payload_bytes: 80,
+            summary_bytes: 10,
+            directory_bytes: 5,
+            file_bytes: Some(100),
+            ..ArchiveStats::default()
+        };
+        assert_eq!(format_percent(stats.payload_percent_of_archive()), "80.00%");
+        assert_eq!(format_percent(stats.metadata_percent_of_archive()), "15.00%");
     }
 }

@@ -137,3 +137,13 @@ memchr line splitting
 ## Test command output
 
 `zlg test` should be useful for both humans and scripts. Normal output is readable text, `--json` is for scripted validation, and `--quiet` is for exit-code-only checks. `--json` and `--quiet` conflict by design. For file-backed inputs, `zlg test` should validate both the seekable metadata and the decoded chunk payloads. For stdin, it should fall back to streaming validation.
+
+
+## Phase 2h-2l additions
+
+- Use long-only `--strict` for grep candidate-chunk verification before output.
+- Default grep remains streaming and low-latency.
+- The chunk CRC is over uncompressed chunk bytes.
+- `zlg info` and `zlg stats` should use sectioned, screenshot-friendly text output plus JSON for scripts.
+- Benchmarks should include repeated median support before default-mode decisions.
+- Head/tail smoke coverage should include zero lines, over-large counts, empty input, single-line input, and final-line-without-newline cases.

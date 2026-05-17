@@ -43,6 +43,18 @@ $zlg test --help > "$workdir/test_help.txt"
 grep -q -- '--json' "$workdir/test_help.txt"
 grep -q -- '--quiet' "$workdir/test_help.txt"
 
+$zlg convert --help > "$workdir/convert_help.txt"
+grep -q -- '--mode' "$workdir/convert_help.txt"
+grep -q -- '--force' "$workdir/convert_help.txt"
+if grep -q -- '--output\|-o,\|--preset\|--level' "$workdir/convert_help.txt"; then
+  echo "convert help exposed disallowed options" >&2
+  exit 1
+fi
+if $zlg convert "$input" "$workdir/plain_should_fail.zlg" >/dev/null 2>&1; then
+  echo "expected convert to reject plain input" >&2
+  exit 1
+fi
+
 $zlg grep --help > "$workdir/grep_help.txt"
 grep -q -- '--head' "$workdir/grep_help.txt"
 grep -q -- '--fixed' "$workdir/grep_help.txt"

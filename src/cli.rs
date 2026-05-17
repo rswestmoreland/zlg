@@ -12,7 +12,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 
 #[derive(Debug, Parser)]
 #[command(name = "zlg")]
@@ -35,6 +36,7 @@ pub enum Commands {
     Info(InfoStatsArgs),
     Stats(InfoStatsArgs),
     Version(VersionArgs),
+    Convert(ConvertArgs),
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -192,6 +194,20 @@ impl From<CompressionModeArg> for CompressionMode {
     }
 }
 
+
+#[derive(Debug, Args)]
+pub struct ConvertArgs {
+    pub input: PathBuf,
+
+    pub output: Option<PathBuf>,
+
+    #[arg(long, value_enum, default_value_t = CompressionModeArg::Standard)]
+    pub mode: CompressionModeArg,
+
+    #[arg(long)]
+    pub force: bool,
+}
+
 #[derive(Debug, Args)]
 pub struct CompressArgs {
     pub input: Option<PathBuf>,
@@ -314,11 +330,151 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
     let mode: CompressionMode = args.mode.into();
     let policy: ChunkPolicy = args.chunk_policy.into();
     let summary_mode: SearchSummaryMode = args.summary_mode.into();
+    let build_profile: BuildProfile = args.build_profile.into();
 
+    let build_stats = write_zlg_from_reader(
+        input,
+        output,
+        mode,
+        policy,
+        summary_mode,
+        build_profile,
+    )?;
+
+    if let Some(path) = args.build_stats_json {
+        std::fs::write(path, build_stats.to_json(build_profile))
+            .context("failed to write build stats json")?;
+    }
+
+    Ok(())
+}
+
+pub fn run_convert(args: ConvertArgs) -> Result<()> {
+    let output_path = convert_output_path(&args.input, args.output.as_ref())?;
+    let convert_output = prepare_convert_output(&output_path, args.force)?;
+    let output = Box::new(convert_output.create()?) as Box<dyn Write>;
+    let result = run_convert_to_writer(&args.input, output, args.mode.into());
+
+    match result {
+        Ok(()) => convert_output.commit(args.force),
+        Err(error) => {
+            convert_output.cleanup();
+            Err(error)
+        }
+    }
+}
+
+fn run_convert_to_writer(
+    input_path: &Path,
+    output: Box<dyn Write>,
+    mode: CompressionMode,
+) -> Result<()> {
+    let policy = ChunkPolicy::FixedLines {
+        lines: 8_192,
+        byte_cap: Some(8 * 1024 * 1024),
+    };
+    let summary_mode = SearchSummaryMode::MeshBigram;
+    let build_profile = BuildProfile::CombinedBitsetSeen;
+
+    match compressed_input_kind(input_path)? {
+        ConvertInputKind::Zstd => {
+            let file = File::open(input_path)
+                .with_context(|| format!("failed to open input {}", input_path.display()))?;
+            let decoder = zstd::stream::read::Decoder::new(file).with_context(|| {
+                format!("failed to create zstd decoder for {}", input_path.display())
+            })?;
+            write_zlg_from_reader(
+                Box::new(decoder),
+                output,
+                mode,
+                policy,
+                summary_mode,
+                build_profile,
+            )?;
+        }
+        ConvertInputKind::External { program, args } => {
+            let mut child = spawn_decompressor(program, args, input_path)?;
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow!("failed to capture {program} stdout"))?;
+            let write_result = write_zlg_from_reader(
+                Box::new(stdout),
+                output,
+                mode,
+                policy,
+                summary_mode,
+                build_profile,
+            );
+            let wait_result = child.wait();
+            write_result?;
+            let status = wait_result.with_context(|| format!("failed to wait for {program}"))?;
+            if !status.success() {
+                return Err(anyhow!(
+                    "{} failed while decompressing {}",
+                    program,
+                    input_path.display()
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ConvertOutput {
+    final_path: PathBuf,
+    temp_path: PathBuf,
+}
+
+impl ConvertOutput {
+    fn create(&self) -> Result<File> {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&self.temp_path)
+            .with_context(|| format!("failed to create temporary output {}", self.temp_path.display()))
+    }
+
+    fn commit(self, force: bool) -> Result<()> {
+        if force && self.final_path.exists() {
+            std::fs::remove_file(&self.final_path)
+                .with_context(|| format!("failed to replace output {}", self.final_path.display()))?;
+        }
+        std::fs::rename(&self.temp_path, &self.final_path).with_context(|| {
+            format!(
+                "failed to move temporary output {} to {}",
+                self.temp_path.display(),
+                self.final_path.display()
+            )
+        })
+    }
+
+    fn cleanup(&self) {
+        let _ = std::fs::remove_file(&self.temp_path);
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ConvertInputKind {
+    Zstd,
+    External {
+        program: &'static str,
+        args: &'static [&'static str],
+    },
+}
+
+fn write_zlg_from_reader(
+    input: Box<dyn Read>,
+    output: Box<dyn Write>,
+    mode: CompressionMode,
+    policy: ChunkPolicy,
+    summary_mode: SearchSummaryMode,
+    build_profile: BuildProfile,
+) -> Result<crate::format::BuildStats> {
     let mut reader = BufReader::new(input);
     let writer = BufWriter::new(output);
-
-    let build_profile: BuildProfile = args.build_profile.into();
     let mut zlg_writer =
         ZlgWriter::new_with_profile(writer, policy.id(), mode, summary_mode, build_profile)?;
     let mut chunker = Chunker::new(policy);
@@ -329,13 +485,94 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
 
     let build_stats = zlg_writer.build_stats();
     zlg_writer.finish()?;
+    Ok(build_stats)
+}
 
-    if let Some(path) = args.build_stats_json {
-        std::fs::write(path, build_stats.to_json(build_profile))
-            .context("failed to write build stats json")?;
+fn compressed_input_kind(path: &Path) -> Result<ConvertInputKind> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+
+    match extension.as_deref() {
+        Some("zst") => Ok(ConvertInputKind::Zstd),
+        Some("gz") => Ok(ConvertInputKind::External {
+            program: "gzip",
+            args: &["-dc"],
+        }),
+        Some("bz2") => Ok(ConvertInputKind::External {
+            program: "bzip2",
+            args: &["-dc"],
+        }),
+        Some("xz") => Ok(ConvertInputKind::External {
+            program: "xz",
+            args: &["-dc"],
+        }),
+        Some(_) | None => Err(anyhow!(
+            "convert supports compressed input only (.zst, .gz, .bz2, .xz); use zlg compress for plain logs"
+        )),
+    }
+}
+
+fn convert_output_path(input: &Path, output: Option<&PathBuf>) -> Result<PathBuf> {
+    if let Some(output) = output {
+        return Ok(output.clone());
     }
 
-    Ok(())
+    compressed_input_kind(input)?;
+    let mut output = input.to_path_buf();
+    output.set_extension("zlg");
+    if output == input {
+        return Err(anyhow!("failed to infer output path for {}", input.display()));
+    }
+    Ok(output)
+}
+
+fn prepare_convert_output(final_path: &Path, force: bool) -> Result<ConvertOutput> {
+    if final_path.exists() && !force {
+        return Err(anyhow!(
+            "failed to create output {} (use --force to overwrite)",
+            final_path.display()
+        ));
+    }
+
+    let parent = final_path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = final_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| anyhow!("invalid output path {}", final_path.display()))?;
+    let mut last_error = None;
+    for attempt in 0..100u32 {
+        let temp_name = format!(".{file_name}.tmp.{}.{}", std::process::id(), attempt);
+        let temp_path = parent.join(temp_name);
+        if !temp_path.exists() {
+            return Ok(ConvertOutput {
+                final_path: final_path.to_path_buf(),
+                temp_path,
+            });
+        }
+        last_error = Some(temp_path);
+    }
+
+    Err(anyhow!(
+        "failed to choose temporary output path near {}{}",
+        final_path.display(),
+        last_error
+            .map(|path| format!("; last candidate was {}", path.display()))
+            .unwrap_or_default()
+    ))
+}
+
+fn spawn_decompressor(program: &'static str, args: &[&'static str], input: &Path) -> Result<Child> {
+    let mut command = Command::new(program);
+    command.args(args).arg(input).stdout(Stdio::piped());
+    command.spawn().with_context(|| {
+        format!(
+            "{} conversion requires the {} command in PATH",
+            input.display(),
+            program
+        )
+    })
 }
 
 pub fn run_cat(args: CatArgs) -> Result<()> {
@@ -1517,4 +1754,45 @@ mod tests {
             "15.00%"
         );
     }
+    #[test]
+    fn convert_help_uses_locked_shape() {
+        let mut command = Cli::command();
+        let convert = command
+            .find_subcommand_mut("convert")
+            .expect("convert subcommand exists");
+        let help = convert.render_long_help().to_string();
+        assert!(help.contains("--mode"));
+        assert!(help.contains("--force"));
+        assert!(!help.contains("--output"));
+        assert!(!help.contains("-o,"));
+        assert!(!help.contains("--preset"));
+        assert!(!help.contains("--level"));
+    }
+
+    #[test]
+    fn convert_output_inference_replaces_last_extension() {
+        assert_eq!(
+            convert_output_path(Path::new("app.log.gz"), None).unwrap(),
+            PathBuf::from("app.log.zlg")
+        );
+        assert_eq!(
+            convert_output_path(Path::new("app.log.bz2"), None).unwrap(),
+            PathBuf::from("app.log.zlg")
+        );
+        assert_eq!(
+            convert_output_path(Path::new("app.log.xz"), None).unwrap(),
+            PathBuf::from("app.log.zlg")
+        );
+        assert_eq!(
+            convert_output_path(Path::new("app.log.zst"), None).unwrap(),
+            PathBuf::from("app.log.zlg")
+        );
+    }
+
+    #[test]
+    fn convert_rejects_plain_input_extensions() {
+        assert!(compressed_input_kind(Path::new("app.log")).is_err());
+        assert!(compressed_input_kind(Path::new("app")).is_err());
+    }
+
 }

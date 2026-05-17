@@ -105,18 +105,31 @@ Line-count semantics:
 
 ## Convert scope
 
-Initial convert support should stay lean.
+Initial convert support should stay lean and should focus only on already-compressed inputs. Plain logs should use `zlg compress`.
 
-Recommended order:
+Command shape:
 
-1. plain input
-2. `.zst` input using existing zstd dependency
-3. `.gz` input after measuring binary-size impact
+```text
+zlg convert <compressed-input> [output.zlg]
+```
 
-Defer by default:
+Rules:
 
-- `.bz2`
-- `.xz`
+- no `-o` or `--output` option
+- omitted output removes the last extension and adds `.zlg`
+- reuse `--mode` for output compression mode
+- reuse long-only `--force` for intentional overwrite
+- reject plain logs with a message pointing users to `zlg compress`
+- do not invoke helpers through a shell
+
+Initial decoder strategy:
+
+- `.zst`: internal zstd decoder already present in zlg
+- `.gz`: external `gzip -dc` helper
+- `.bz2`: external `bzip2 -dc` helper
+- `.xz`: external `xz -dc` helper
+
+The helper-based approach intentionally avoids new codec crates and keeps binary-size growth near zero. If helper availability is a problem, embedded decoder crates can be measured later.
 
 ## Final core must not drift
 

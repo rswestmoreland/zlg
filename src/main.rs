@@ -21,5 +21,6 @@ fn main() -> Result<()> {
         Commands::Info(args) => cli::run_info(args),
         Commands::Stats(args) => cli::run_stats(args),
         Commands::Version(args) => cli::run_version(args),
+        Commands::Convert(args) => cli::run_convert(args),
     }
 }

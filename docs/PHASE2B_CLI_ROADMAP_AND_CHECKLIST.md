@@ -90,7 +90,7 @@ Checklist:
 - [x] `zlg info`
 - [x] `zlg stats`
 - [ ] `zlg top`
-- [ ] `zlg convert`
+- [x] `zlg convert`
 
 Open for later discussion:
 
@@ -332,7 +332,7 @@ Options:
 
 ### convert
 
-Purpose: convert existing inputs to `.zlg`.
+Purpose: convert already-compressed inputs to `.zlg`. Plain logs should use `zlg compress`.
 
 Initial design:
 
@@ -432,4 +432,4 @@ Do not commit:
 
 ## Phase 2 implementation status update
 
-The current handoff implements the first CLI alignment pass: `--mode`, lowercase grep flags, `--head`, `version`, `head`, `tail`, `test`, `info`, and `stats`. `top` and `convert` remain deferred. Tail and info/stats currently use the existing streaming reader path rather than a finalized seekable directory reader, because the file format remains experimental and should not be frozen in this phase.
+The current Phase 2m prep adds helper-based `convert` for already-compressed `.zst`, `.gz`, `.bz2`, and `.xz` inputs. `top` remains deferred. The file format remains experimental and should not be frozen in this phase.

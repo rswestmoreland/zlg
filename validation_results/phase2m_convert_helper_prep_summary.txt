@@ -1,0 +1,24 @@
+Phase 2m convert helper prep summary
+
+Scope implemented in ChatGPT sandbox:
+- Added zlg convert command shape: zlg convert <compressed-input> [output.zlg].
+- Added internal .zst conversion using existing zstd dependency.
+- Added helper-based .gz conversion via gzip -dc.
+- Added helper-based .bz2 conversion via bzip2 -dc.
+- Added helper-based .xz conversion via xz -dc.
+- Added output inference by removing the last extension and appending .zlg.
+- Added --mode and --force support for convert.
+- Kept no -o/--output option for convert.
+- Added convert help and output inference unit tests.
+- Added scripts/phase2m_convert_once.sh.
+- Updated phase2_cli_smoke for convert help and plain input rejection checks.
+- Updated README and Phase 2 docs.
+
+Sandbox checks completed:
+- bash -n scripts/phase2_cli_smoke.sh
+- bash -n scripts/phase2m_convert_once.sh
+- ASCII scan
+- path-length scan
+- zip integrity after packaging
+
+Rust/Cargo validation was not run in ChatGPT sandbox because cargo is unavailable.

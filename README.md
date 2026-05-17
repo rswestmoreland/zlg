@@ -2,7 +2,7 @@
 
 `zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, Phase 2d through commit 2c5b8c8, and Phase 2e/2g through commit 3623975. The current pre-validation package finishes Phase 2h-2l maturity work: `zlg grep --strict`, repeated-median benchmarks, polished info/stats output, and stronger head/tail edge coverage. Top and convert remain design/deferred work.
+The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, Phase 2d through commit 2c5b8c8, Phase 2e/2g through commit 3623975, and Phase 2h-2l through commit 260ca74. The current pre-validation package starts Phase 2m with helper-based `zlg convert` support for already-compressed inputs. Top remains deferred.
 
 ## Current status
 
@@ -51,7 +51,7 @@ The default compression mode is `standard`.
 - Keep `stats` as a pleasant zlg-specific report, with `--json` for scripts. Do not add a separate `wc` command.
 - Refuse to overwrite output files by default; use long-only `--force` when replacement is intentional.
 - Keep sort/uniq design open, likely through top/extract/count/sort workflows first.
-- Keep conversion support lean; plain and `.zst` should be straightforward, `.gz` should be measured for binary-size impact before locking.
+- Keep conversion support lean. `zlg convert` is for already-compressed inputs; plain logs should use `zlg compress`. Use internal `.zst` decoding and helper-based `.gz`, `.bz2`, and `.xz` decoding first to avoid growing the binary with new codec crates.
 
 ## Planned command surface
 
@@ -88,12 +88,37 @@ Implemented and validated in Phase 2:
 - `zlg test` with readable text output, `--json`, and `--quiet`
 - `zlg info` using metadata for file inputs
 - `zlg stats` using metadata for file inputs, with readable text output and JSON output
+- `zlg convert` for already-compressed `.zst`, `.gz`, `.bz2`, and `.xz` inputs
 
 Deferred command design topics:
 
 - `zlg top`
-- `zlg convert`
 - sort/uniq-like workflows
+
+
+## Convert compressed logs
+
+`zlg convert` is a convenience bridge for already-compressed log files. Plain logs should use `zlg compress`.
+
+```text
+zlg convert app.log.zst
+zlg convert app.log.gz
+zlg convert app.log.bz2
+zlg convert app.log.xz
+zlg convert app.log.gz app-archive.zlg --mode fast
+zlg convert app.log.xz app-archive.zlg --force
+```
+
+If the output path is omitted, zlg removes the last extension and adds `.zlg`, for example `app.log.gz` becomes `app.log.zlg`. The command intentionally has no `-o` or `--output` option.
+
+Decoder strategy:
+
+- `.zst` uses the existing internal zstd dependency.
+- `.gz` uses `gzip -dc` from `PATH`.
+- `.bz2` uses `bzip2 -dc` from `PATH`.
+- `.xz` uses `xz -dc` from `PATH`.
+
+Helpers are invoked directly without a shell. Missing helpers produce a clear unsupported-in-this-environment error. This keeps the zlg binary lean while supporting common Linux compressed log formats.
 
 ## Author
 

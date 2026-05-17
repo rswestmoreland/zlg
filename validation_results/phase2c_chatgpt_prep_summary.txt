@@ -1,0 +1,36 @@
+Phase 2c ChatGPT implementation prep summary
+Date: 2026-05-17
+
+Scope implemented before Codex validation:
+
+- Added a seekable footer/directory metadata reader for the current experimental zlg format.
+- Added metadata validation for footer magic/length, directory magic/entry length, chunk-count agreement, directory length, layout bounds, payload bounds, and total line/byte counts.
+- Added a directory-based raw chunk reader for selected chunk decoding.
+- Updated file-backed tail to walk directory entries backward and decode only selected trailing chunks.
+- Updated file-backed info and stats to use metadata rather than full archive decode.
+- Kept streaming fallback for stdin info/stats/tail behavior.
+- Hid build-stats-json and grep stats-json from normal help because they are developer/bench outputs.
+- Extended version --long with format version and locked default core settings.
+- Added metadata-reader and CLI-help focused tests.
+- Added Phase 2c performance smoke bench tool and script comparing plain grep, zgrep, and zlg grep.
+- Updated README and active Phase 2 docs for post-validation status and Phase 2c scope.
+
+Validation performed in this sandbox:
+
+- python3 -m py_compile tools/phase2c_perf_smoke_bench.py: pass
+- Static source/docs review only for Rust changes. cargo/rustc/rustfmt are not installed in this environment.
+
+Codex must run and fix as needed:
+
+cargo fmt --check
+cargo check
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo build --release
+scripts/phase0h_smoke.sh
+scripts/phase0h_correctness_check.sh
+scripts/phase0i_policy_matrix_check.sh
+scripts/phase0m_selector_smoke.sh
+scripts/phase0i_artifact_hygiene_check.sh
+scripts/phase2_cli_smoke.sh
+scripts/phase2c_perf_smoke_once.sh

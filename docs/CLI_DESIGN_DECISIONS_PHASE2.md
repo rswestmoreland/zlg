@@ -82,9 +82,13 @@ Richard S. Westmoreland
 dev@rswestmore.land
 ```
 
+## Phase 2 validation status
+
+The Phase 2 CLI validation/fix pass at commit 6eab4a3 passed the required Rust validation flow and Phase 2 CLI smoke script. Phase 2c builds on that checkpoint.
+
 ## Head/tail metadata
 
-Efficient `tail` requires line counts in the directory or metadata associated with chunks.
+Efficient `tail` requires line counts in the directory or metadata associated with chunks. Phase 2c uses the existing footer/directory metadata for file-backed `tail`, `info`, and `stats`.
 
 Store:
 

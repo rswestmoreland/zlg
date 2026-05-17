@@ -1,3 +1,7 @@
+# Superseded by Phase 2c
+
+This Phase 2b kickoff prompt is retained for traceability. Use `docs/ZLG_NEXT_CHAT_PROMPT_PHASE2C.md` for the current validation/fix handoff.
+
 You are continuing work on the zlg Rust project.
 
 Start with REVIEW ONLY. Do not write code until the review is complete, drift is identified, and the exact implementation plan is clear.

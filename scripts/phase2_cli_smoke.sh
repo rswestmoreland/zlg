@@ -19,9 +19,29 @@ if [ ! -x "$zlg" ]; then
 fi
 
 $zlg version >/dev/null
-$zlg version --long >/dev/null
+$zlg version --long > "$workdir/version_long.txt"
+grep -q 'format-version:' "$workdir/version_long.txt"
+grep -q 'default-compression-mode: standard' "$workdir/version_long.txt"
+grep -q 'default-chunk-policy: fixed-lines8192-cap8m' "$workdir/version_long.txt"
+grep -q 'default-summary-type: mesh-bigram ZBM1 v2' "$workdir/version_long.txt"
 $zlg help >/dev/null
 $zlg help grep >/dev/null
+
+$zlg compress --help > "$workdir/compress_help.txt"
+grep -q -- '--mode' "$workdir/compress_help.txt"
+if grep -q -- '--preset\|--level\|--chunk-policy\|--summary-mode\|--build-profile\|--build-stats-json' "$workdir/compress_help.txt"; then
+  echo "compress help exposed removed or hidden options" >&2
+  exit 1
+fi
+
+$zlg grep --help > "$workdir/grep_help.txt"
+grep -q -- '--head' "$workdir/grep_help.txt"
+grep -q -- '--fixed' "$workdir/grep_help.txt"
+grep -q -- '--pcre2' "$workdir/grep_help.txt"
+if grep -q -- '--max-count\|-P,\|-F,\|--stats-json' "$workdir/grep_help.txt"; then
+  echo "grep help exposed removed or hidden options" >&2
+  exit 1
+fi
 
 for mode in none fast standard best; do
   archive="$workdir/$mode.zlg"

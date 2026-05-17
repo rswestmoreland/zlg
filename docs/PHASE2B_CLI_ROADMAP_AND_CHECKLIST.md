@@ -1,10 +1,10 @@
 # Phase 2b CLI Roadmap and Checklist
 
-This document is the handoff baseline for the next zlg session. It records the current CLI design decisions and the implementation plan. Phase 2b should start with review only before code changes.
+This document records the Phase 2b CLI plan and completion status. Phase 2 CLI validation passed at commit 6eab4a3. Active next-phase work is tracked in `docs/PHASE2C_METADATA_AND_PERF_SMOKE.md`.
 
 ## Current validated base
 
-Use the current bundle as authoritative. The production compression/search core is locked and should not be reopened during CLI work.
+Use the current repository checkout as authoritative. The production compression/search core is locked and should not be reopened during CLI work.
 
 Validated core stack:
 
@@ -61,34 +61,34 @@ Checklist:
 - [x] Add author metadata in `Cargo.toml`.
 - [x] Add `LICENSE`, `LICENSE-MIT`, and `LICENSE-APACHE`.
 - [x] Update README with author/contact/license.
-- [ ] Ensure `zlg version` reports author/contact in long output once implemented.
+- [x] Ensure `zlg version` reports author/contact in long output once implemented.
 
 ## Global CLI rules
 
-- [ ] Use subcommands.
-- [ ] Use lowercase short options only.
-- [ ] Use lowercase long options only.
-- [ ] Avoid behavioral aliases.
-- [ ] Support normal help conventions: `zlg help`, `zlg --help`, `zlg <command> --help`.
-- [ ] Support `zlg version` and `zlg --version`.
-- [ ] Do not expose internal benchmark profiles in normal help output.
-- [ ] Do not expose the full numeric compression-level range in the normal CLI.
-- [ ] Use `--mode` for compression mode.
-- [ ] Do not use `--preset` in the final CLI.
+- [x] Use subcommands.
+- [x] Use lowercase short options only.
+- [x] Use lowercase long options only.
+- [x] Avoid behavioral aliases.
+- [x] Support normal help conventions: `zlg help`, `zlg --help`, `zlg <command> --help`.
+- [x] Support `zlg version` and `zlg --version`.
+- [x] Do not expose internal benchmark profiles in normal help output.
+- [x] Do not expose the full numeric compression-level range in the normal CLI.
+- [x] Use `--mode` for compression mode.
+- [x] Do not use `--preset` in the final CLI.
 
 ## Planned command set
 
-- [ ] `zlg help`
-- [ ] `zlg version`
-- [ ] `zlg compress`
-- [ ] `zlg decompress`
-- [ ] `zlg cat`
-- [ ] `zlg grep`
-- [ ] `zlg head`
-- [ ] `zlg tail`
-- [ ] `zlg test`
-- [ ] `zlg info`
-- [ ] `zlg stats`
+- [x] `zlg help`
+- [x] `zlg version`
+- [x] `zlg compress`
+- [x] `zlg decompress`
+- [x] `zlg cat`
+- [x] `zlg grep`
+- [x] `zlg head`
+- [x] `zlg tail`
+- [x] `zlg test`
+- [x] `zlg info`
+- [x] `zlg stats`
 - [ ] `zlg top`
 - [ ] `zlg convert`
 
@@ -113,10 +113,10 @@ zlg <command> --help
 
 Checklist:
 
-- [ ] General command list.
-- [ ] Command-specific help.
+- [x] General command list.
+- [x] Command-specific help.
 - [ ] Short examples.
-- [ ] Hide production-internal options.
+- [x] Hide production-internal options.
 
 ### version
 
@@ -169,9 +169,9 @@ Remove or hide from final normal CLI:
 
 - [x] public numeric `--level` removed from normal CLI
 - [x] `--preset` removed from normal CLI
-- [ ] public `--build-profile`
-- [ ] public `--summary-mode`
-- [ ] public `--chunk-policy`
+- [x] public `--build-profile` hidden from normal help
+- [x] public `--summary-mode` hidden from normal help
+- [x] public `--chunk-policy` hidden from normal help
 
 ### decompress
 
@@ -205,7 +205,7 @@ Checklist:
 
 - [ ] Output raw decompressed bytes only.
 - [ ] No metadata by default.
-- [ ] Decode errors should fail cleanly.
+- [x] Decode errors should fail cleanly.
 
 ### grep
 
@@ -282,7 +282,7 @@ Purpose: human metadata.
 
 Options:
 
-- [ ] `--json`
+- [x] `--json`
 - [ ] `--chunks`
 
 ### stats
@@ -291,7 +291,7 @@ Purpose: component stats and wc-style counts.
 
 Options:
 
-- [ ] `--json`
+- [x] `--json`
 - [ ] `--chunks`
 
 Stats should include:

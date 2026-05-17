@@ -2,11 +2,11 @@
 
 `zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-The selected production core is locked. The Phase 2 CLI pass has started: lowercase options, compression modes, head/tail, version, test, info, and stats are implemented in the current handoff. Top and convert remain design/deferred work.
+The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, and Phase 2c adds seekable metadata use for file-backed info/stats/tail plus a compact performance smoke bench. Top and convert remain design/deferred work.
 
 ## Current status
 
-This repository is still pre-1.0. The core compression/search stack has been validated and hardened, and the public CLI is being aligned with the Phase 2 design. The file format remains experimental and must not be frozen yet.
+This repository is still pre-1.0. The core compression/search stack has been validated and hardened, and the public CLI is aligned with the Phase 2 lowercase option design. The file format remains experimental and must not be frozen yet.
 
 ## Locked production core
 
@@ -37,17 +37,17 @@ best     = zstd level 8
 
 The default compression mode is `standard`.
 
-## Locked design decisions for the next CLI phase
+## Locked CLI design decisions
 
 - Use subcommands.
 - Use lowercase short options only.
 - Use lowercase long options only.
-- Do not carry uppercase feature flags such as `-P`.
+- Do not carry uppercase feature flags such as `-P` or `-F`.
 - Do not expose the full numeric compression-level range in the normal CLI.
 - Use `--mode`, not `--preset`.
 - Use `-p`, `--pcre2` for PCRE2 mode.
 - Include `head` and `tail` as first-class commands.
-- Store line-count and byte-count metadata so `tail` and `stats` can be efficient.
+- Store and use line-count and byte-count metadata so file-backed `tail`, `info`, and `stats` can be efficient.
 - Put wc-style behavior under `stats`, not a separate `wc` command.
 - Keep sort/uniq design open, likely through top/extract/count/sort workflows first.
 - Keep conversion support lean; plain and `.zst` should be straightforward, `.gz` should be measured for binary-size impact before locking.
@@ -74,7 +74,7 @@ zlg convert
 
 ## Current implemented commands
 
-Implemented in the current Phase 2 CLI handoff:
+Implemented and validated in Phase 2:
 
 - `zlg help` through the normal clap help command path
 - `zlg version`
@@ -83,10 +83,10 @@ Implemented in the current Phase 2 CLI handoff:
 - `zlg cat`
 - `zlg grep` with lowercase `-f`, `-p`, and `--head`
 - `zlg head`
-- `zlg tail`
+- `zlg tail` with a seekable metadata path for file inputs
 - `zlg test`
-- `zlg info`
-- `zlg stats`
+- `zlg info` using metadata for file inputs
+- `zlg stats` using metadata for file inputs
 
 Deferred command design topics:
 
@@ -112,7 +112,7 @@ See:
 
 ## Validation baseline
 
-The last validated hardening checkpoint passed:
+The Phase 2 CLI validation/fix pass at commit 6eab4a3 passed:
 
 ```text
 cargo fmt --check
@@ -125,15 +125,22 @@ phase0h correctness
 phase0i policy matrix
 phase0m selector smoke
 phase0i artifact hygiene
-phase1o hardening coverage
+phase2 CLI smoke
 ```
 
-## Next session
+## Phase 2c work
 
-Start the next session with review only. Treat this bundle as the authoritative baseline for CLI planning and implementation.
+Phase 2c focuses on:
 
-Recommended starting document:
+- seekable footer/directory metadata reading
+- metadata-backed `tail`, `info`, and `stats` for file inputs
+- help/version/docs alignment
+- a compact performance smoke bench comparing plain `grep`, `zgrep`, and `zlg grep`
+
+Recommended active documents:
 
 ```text
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2B.md
+docs/CLI_DESIGN_DECISIONS_PHASE2.md
+docs/PHASE2C_METADATA_AND_PERF_SMOKE.md
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2C.md
 ```

@@ -6,7 +6,7 @@ use crate::search::{
 use anyhow::{anyhow, Context, Result};
 use crc32fast::{hash as crc32, Hasher};
 use memchr::memchr_iter;
-use std::io::{Cursor, ErrorKind, Read, Write};
+use std::io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::time::Instant;
 
 const GLOBAL_MAGIC: &[u8; 8] = b"ZLG1P0\0\0";
@@ -22,6 +22,47 @@ const CHUNK_FLAG_STORED: u16 = 0x8000;
 // format guarantees; normal final-stack chunks are far below these limits.
 const MAX_SUMMARY_LEN: u64 = 64 * 1024 * 1024;
 const MAX_COMPRESSED_CHUNK_LEN: u64 = 1024 * 1024 * 1024;
+
+
+const FOOTER_LEN: u64 = 48;
+const DIRECTORY_HEADER_LEN: u64 = 16;
+
+pub fn zlg_format_version() -> u16 {
+    FORMAT_VERSION
+}
+
+pub fn default_compression_mode_name() -> &'static str {
+    CompressionMode::Standard.as_str()
+}
+
+pub fn default_chunk_policy_name() -> &'static str {
+    "fixed-lines8192-cap8m"
+}
+
+pub fn default_summary_type_name() -> &'static str {
+    "mesh-bigram ZBM1 v2"
+}
+
+pub fn default_build_profile_name() -> &'static str {
+    "combined-bitset-seen"
+}
+
+pub fn chunk_policy_name_from_id(id: u32) -> &'static str {
+    match id {
+        20 => "fixed-lines8192-cap8m",
+        _ => "unknown",
+    }
+}
+
+pub fn compression_mode_name_from_id(id: u32) -> &'static str {
+    match id {
+        0 => "none",
+        3 => "fast",
+        6 => "standard",
+        8 => "best",
+        _ => "unknown",
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompressionMode {
@@ -49,6 +90,15 @@ impl CompressionMode {
             Self::Best => 8,
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Fast => "fast",
+            Self::Standard => "standard",
+            Self::Best => "best",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -74,6 +124,32 @@ pub struct DirectoryEntry {
     pub first_line_number: u64,
     pub line_count: u64,
     pub flags: u32,
+}
+
+
+#[derive(Clone, Debug)]
+pub struct ArchiveMetadata {
+    pub format_version: u16,
+    pub flags: u32,
+    pub chunk_policy_id: u32,
+    pub compression_mode_id: u32,
+    pub chunk_count: u64,
+    pub total_lines: u64,
+    pub total_uncompressed_bytes: u64,
+    pub directory_offset: u64,
+    pub directory_len: u64,
+    pub file_len: u64,
+    pub entries: Vec<DirectoryEntry>,
+}
+
+impl ArchiveMetadata {
+    pub fn total_payload_bytes(&self) -> u64 {
+        self.entries.iter().map(|entry| entry.compressed_len).sum()
+    }
+
+    pub fn total_summary_bytes(&self) -> u64 {
+        self.entries.iter().map(|entry| entry.summary_len as u64).sum()
+    }
 }
 
 #[derive(Debug)]
@@ -768,31 +844,7 @@ impl<R: Read> ZlgReader<R> {
     }
 
     fn read_chunk_header_after_magic(&mut self) -> Result<ChunkHeader> {
-        let header_len = read_u16(&mut self.reader)?;
-        if header_len != CHUNK_HEADER_LEN {
-            return Err(anyhow!("unsupported zlg chunk header length {header_len}"));
-        }
-
-        let flags = read_u16(&mut self.reader)?;
-        let chunk_index = read_u64(&mut self.reader)?;
-        let first_line_number = read_u64(&mut self.reader)?;
-        let line_count = read_u64(&mut self.reader)?;
-        let uncompressed_len = read_u64(&mut self.reader)?;
-        let compressed_len = read_u64(&mut self.reader)?;
-        let summary_len = read_u32(&mut self.reader)?;
-        let crc32 = read_u32(&mut self.reader)?;
-        let _reserved = read_u64(&mut self.reader)?;
-
-        Ok(ChunkHeader {
-            flags,
-            chunk_index,
-            first_line_number,
-            line_count,
-            uncompressed_len,
-            compressed_len,
-            summary_len,
-            crc32,
-        })
+        read_chunk_header_after_magic_from(&mut self.reader)
     }
 
     fn skip_directory(&mut self) -> Result<()> {
@@ -831,6 +883,293 @@ impl<R: Read> ZlgReader<R> {
         copy_n_to_sink(&mut self.reader, (footer_len - 8) as u64)?;
         Ok(())
     }
+}
+
+
+pub fn read_archive_metadata<R: Read + Seek>(reader: &mut R) -> Result<ArchiveMetadata> {
+    let file_len = reader
+        .seek(SeekFrom::End(0))
+        .context("failed to seek to end of zlg archive")?;
+    if file_len < GLOBAL_HEADER_LEN as u64 + DIRECTORY_HEADER_LEN + FOOTER_LEN {
+        return Err(anyhow!("zlg archive is too small for metadata"));
+    }
+
+    reader
+        .seek(SeekFrom::Start(0))
+        .context("failed to seek to zlg global header")?;
+    let mut magic = [0u8; 8];
+    reader
+        .read_exact(&mut magic)
+        .context("failed to read zlg global header")?;
+    if &magic != GLOBAL_MAGIC {
+        return Err(anyhow!("unsupported or invalid zlg magic"));
+    }
+
+    let format_version = read_u16(reader)?;
+    if format_version != FORMAT_VERSION {
+        return Err(anyhow!("unsupported zlg version {format_version}"));
+    }
+
+    let header_len = read_u16(reader)?;
+    if header_len != GLOBAL_HEADER_LEN {
+        return Err(anyhow!("unsupported zlg header length {header_len}"));
+    }
+
+    let flags = read_u32(reader)?;
+    let chunk_policy_id = read_u32(reader)?;
+    let compression_mode_id = read_u32(reader)?;
+    let mut reserved = [0u8; 8];
+    reader.read_exact(&mut reserved)?;
+
+    let footer_offset = file_len
+        .checked_sub(FOOTER_LEN)
+        .ok_or_else(|| anyhow!("zlg footer offset underflow"))?;
+    reader
+        .seek(SeekFrom::Start(footer_offset))
+        .context("failed to seek to zlg footer")?;
+
+    let mut footer_magic = [0u8; 4];
+    reader
+        .read_exact(&mut footer_magic)
+        .context("failed to read zlg footer magic")?;
+    if &footer_magic != FOOTER_MAGIC {
+        return Err(anyhow!("invalid zlg footer magic"));
+    }
+
+    let footer_len = read_u32(reader)?;
+    if footer_len as u64 != FOOTER_LEN {
+        return Err(anyhow!("unsupported zlg footer length {footer_len}"));
+    }
+
+    let chunk_count = read_u64(reader)?;
+    let total_lines = read_u64(reader)?;
+    let total_uncompressed_bytes = read_u64(reader)?;
+    let directory_offset = read_u64(reader)?;
+    let directory_len = read_u64(reader)?;
+
+    if directory_offset < GLOBAL_HEADER_LEN as u64 {
+        return Err(anyhow!("zlg directory starts before global header"));
+    }
+    if directory_len < DIRECTORY_HEADER_LEN {
+        return Err(anyhow!("zlg directory length is too small"));
+    }
+    let directory_end = checked_add_u64(directory_offset, directory_len, "directory end")?;
+    if directory_end != footer_offset {
+        return Err(anyhow!(
+            "zlg directory/footer layout mismatch: directory ends at {}, footer starts at {}",
+            directory_end,
+            footer_offset
+        ));
+    }
+
+    reader
+        .seek(SeekFrom::Start(directory_offset))
+        .context("failed to seek to zlg directory")?;
+    let mut dir_magic = [0u8; 4];
+    reader
+        .read_exact(&mut dir_magic)
+        .context("failed to read zlg directory magic")?;
+    if &dir_magic != DIR_MAGIC {
+        return Err(anyhow!("invalid zlg directory magic"));
+    }
+
+    let entry_len = read_u32(reader)?;
+    if entry_len != DIRECTORY_ENTRY_LEN {
+        return Err(anyhow!(
+            "unsupported zlg directory entry length {entry_len}"
+        ));
+    }
+
+    let entry_count = read_u64(reader)?;
+    if entry_count != chunk_count {
+        return Err(anyhow!(
+            "zlg directory/footer chunk count mismatch: directory {}, footer {}",
+            entry_count,
+            chunk_count
+        ));
+    }
+
+    let entries_bytes = (entry_len as u64)
+        .checked_mul(entry_count)
+        .ok_or_else(|| anyhow!("zlg directory length overflow"))?;
+    let expected_directory_len = DIRECTORY_HEADER_LEN
+        .checked_add(entries_bytes)
+        .ok_or_else(|| anyhow!("zlg directory length overflow"))?;
+    if expected_directory_len != directory_len {
+        return Err(anyhow!(
+            "zlg directory length mismatch: expected {}, got {}",
+            expected_directory_len,
+            directory_len
+        ));
+    }
+
+    let entry_count_usize = usize::try_from(entry_count)
+        .with_context(|| format!("zlg directory entry count does not fit usize: {entry_count}"))?;
+    let mut entries = Vec::with_capacity(entry_count_usize);
+    let mut summed_lines = 0u64;
+    let mut summed_uncompressed = 0u64;
+
+    for index in 0..entry_count {
+        let entry = read_directory_entry(reader)?;
+        validate_directory_entry(index, &entry, directory_offset)?;
+        summed_lines = checked_add_u64(summed_lines, entry.line_count, "total line count")?;
+        summed_uncompressed = checked_add_u64(
+            summed_uncompressed,
+            entry.uncompressed_len,
+            "total uncompressed bytes",
+        )?;
+        entries.push(entry);
+    }
+
+    if summed_lines != total_lines {
+        return Err(anyhow!(
+            "zlg total line count mismatch: directory {}, footer {}",
+            summed_lines,
+            total_lines
+        ));
+    }
+    if summed_uncompressed != total_uncompressed_bytes {
+        return Err(anyhow!(
+            "zlg total byte count mismatch: directory {}, footer {}",
+            summed_uncompressed,
+            total_uncompressed_bytes
+        ));
+    }
+
+    Ok(ArchiveMetadata {
+        format_version,
+        flags,
+        chunk_policy_id,
+        compression_mode_id,
+        chunk_count,
+        total_lines,
+        total_uncompressed_bytes,
+        directory_offset,
+        directory_len,
+        file_len,
+        entries,
+    })
+}
+
+pub fn read_raw_chunk_at<R: Read + Seek>(reader: &mut R, entry: &DirectoryEntry) -> Result<RawChunk> {
+    reader
+        .seek(SeekFrom::Start(entry.chunk_offset))
+        .context("failed to seek to zlg chunk")?;
+    let mut magic = [0u8; 4];
+    reader
+        .read_exact(&mut magic)
+        .context("failed to read zlg chunk magic")?;
+    if &magic != CHUNK_MAGIC {
+        return Err(anyhow!("invalid zlg chunk magic at directory offset"));
+    }
+
+    let header = read_chunk_header_after_magic_from(reader)?;
+    validate_chunk_header_matches_entry(&header, entry)?;
+    copy_n_to_sink(reader, header.summary_len as u64)
+        .context("failed to skip chunk search summary")?;
+
+    let compressed_len = checked_alloc_len(
+        header.compressed_len,
+        MAX_COMPRESSED_CHUNK_LEN,
+        "compressed chunk payload",
+    )?;
+    let mut compressed = vec![0u8; compressed_len];
+    reader
+        .read_exact(&mut compressed)
+        .context("failed to read compressed chunk payload")?;
+
+    Ok(RawChunk { header, compressed })
+}
+
+fn read_chunk_header_after_magic_from<R: Read>(reader: &mut R) -> Result<ChunkHeader> {
+    let header_len = read_u16(reader)?;
+    if header_len != CHUNK_HEADER_LEN {
+        return Err(anyhow!("unsupported zlg chunk header length {header_len}"));
+    }
+
+    let flags = read_u16(reader)?;
+    let chunk_index = read_u64(reader)?;
+    let first_line_number = read_u64(reader)?;
+    let line_count = read_u64(reader)?;
+    let uncompressed_len = read_u64(reader)?;
+    let compressed_len = read_u64(reader)?;
+    let summary_len = read_u32(reader)?;
+    let crc32 = read_u32(reader)?;
+    let _reserved = read_u64(reader)?;
+
+    Ok(ChunkHeader {
+        flags,
+        chunk_index,
+        first_line_number,
+        line_count,
+        uncompressed_len,
+        compressed_len,
+        summary_len,
+        crc32,
+    })
+}
+
+fn read_directory_entry<R: Read>(reader: &mut R) -> Result<DirectoryEntry> {
+    Ok(DirectoryEntry {
+        chunk_offset: read_u64(reader)?,
+        summary_offset: read_u64(reader)?,
+        summary_len: read_u32(reader)?,
+        flags: read_u32(reader)?,
+        compressed_offset: read_u64(reader)?,
+        compressed_len: read_u64(reader)?,
+        uncompressed_len: read_u64(reader)?,
+        first_line_number: read_u64(reader)?,
+        line_count: read_u64(reader)?,
+    })
+}
+
+fn validate_directory_entry(index: u64, entry: &DirectoryEntry, directory_offset: u64) -> Result<()> {
+    if entry.chunk_offset < GLOBAL_HEADER_LEN as u64 {
+        return Err(anyhow!("zlg chunk {index} starts before global header"));
+    }
+    if entry.chunk_offset >= directory_offset {
+        return Err(anyhow!("zlg chunk {index} starts inside directory/footer area"));
+    }
+    if entry.summary_offset < entry.chunk_offset {
+        return Err(anyhow!("zlg chunk {index} summary offset is before chunk offset"));
+    }
+    let summary_end = checked_add_u64(
+        entry.summary_offset,
+        entry.summary_len as u64,
+        "summary end",
+    )?;
+    if summary_end != entry.compressed_offset {
+        return Err(anyhow!(
+            "zlg chunk {index} summary/payload layout mismatch"
+        ));
+    }
+    let payload_end = checked_add_u64(
+        entry.compressed_offset,
+        entry.compressed_len,
+        "payload end",
+    )?;
+    if payload_end > directory_offset {
+        return Err(anyhow!("zlg chunk {index} payload extends beyond directory"));
+    }
+    Ok(())
+}
+
+fn validate_chunk_header_matches_entry(header: &ChunkHeader, entry: &DirectoryEntry) -> Result<()> {
+    if header.summary_len != entry.summary_len
+        || header.compressed_len != entry.compressed_len
+        || header.uncompressed_len != entry.uncompressed_len
+        || header.first_line_number != entry.first_line_number
+        || header.line_count != entry.line_count
+        || header.flags as u32 != entry.flags
+    {
+        return Err(anyhow!("zlg chunk header does not match directory entry"));
+    }
+    Ok(())
+}
+
+fn checked_add_u64(left: u64, right: u64, label: &str) -> Result<u64> {
+    left.checked_add(right)
+        .ok_or_else(|| anyhow!("zlg {label} overflow"))
 }
 
 #[derive(Debug)]
@@ -1134,6 +1473,89 @@ mod tests {
         assert!(err.to_string().contains("compressed chunk payload"));
     }
 
+
+    #[test]
+    fn metadata_reader_reads_valid_archive() {
+        let archive = build_archive_bytes(b"alpha\nbeta\n", SearchSummaryMode::MeshBigram);
+        let metadata = read_archive_metadata(&mut Cursor::new(archive)).unwrap();
+
+        assert_eq!(metadata.format_version, FORMAT_VERSION);
+        assert_eq!(metadata.chunk_count, 1);
+        assert_eq!(metadata.total_lines, 2);
+        assert_eq!(metadata.total_uncompressed_bytes, b"alpha\nbeta\n".len() as u64);
+        assert_eq!(metadata.entries.len(), 1);
+        assert_eq!(metadata.total_payload_bytes(), metadata.entries[0].compressed_len);
+        assert_eq!(metadata.total_summary_bytes(), metadata.entries[0].summary_len as u64);
+    }
+
+    #[test]
+    fn metadata_reader_handles_empty_archive() {
+        let archive = build_empty_archive_bytes();
+        let metadata = read_archive_metadata(&mut Cursor::new(archive)).unwrap();
+
+        assert_eq!(metadata.chunk_count, 0);
+        assert_eq!(metadata.total_lines, 0);
+        assert_eq!(metadata.total_uncompressed_bytes, 0);
+        assert!(metadata.entries.is_empty());
+    }
+
+    #[test]
+    fn metadata_reader_rejects_bad_footer_magic() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let footer_offset = archive.len() - FOOTER_LEN as usize;
+        archive[footer_offset..footer_offset + 4].copy_from_slice(b"BAD!");
+
+        let err = read_archive_metadata(&mut Cursor::new(archive)).unwrap_err();
+        assert!(err.to_string().contains("footer magic"));
+    }
+
+    #[test]
+    fn metadata_reader_rejects_bad_directory_magic() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let metadata = read_archive_metadata(&mut Cursor::new(archive.clone())).unwrap();
+        let offset = metadata.directory_offset as usize;
+        archive[offset..offset + 4].copy_from_slice(b"BAD!");
+
+        let err = read_archive_metadata(&mut Cursor::new(archive)).unwrap_err();
+        assert!(err.to_string().contains("directory magic"));
+    }
+
+    #[test]
+    fn metadata_reader_rejects_directory_footer_count_mismatch() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let metadata = read_archive_metadata(&mut Cursor::new(archive.clone())).unwrap();
+        let directory_count_offset = metadata.directory_offset as usize + 8;
+        archive[directory_count_offset..directory_count_offset + 8]
+            .copy_from_slice(&2u64.to_le_bytes());
+
+        let err = read_archive_metadata(&mut Cursor::new(archive)).unwrap_err();
+        assert!(err.to_string().contains("chunk count mismatch"));
+    }
+
+    #[test]
+    fn metadata_reader_rejects_out_of_bounds_payload() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let metadata = read_archive_metadata(&mut Cursor::new(archive.clone())).unwrap();
+        let entry_offset = metadata.directory_offset as usize + DIRECTORY_HEADER_LEN as usize;
+        let compressed_len_offset = entry_offset + 32;
+        archive[compressed_len_offset..compressed_len_offset + 8]
+            .copy_from_slice(&u64::MAX.to_le_bytes());
+
+        let err = read_archive_metadata(&mut Cursor::new(archive)).unwrap_err();
+        assert!(err.to_string().contains("overflow") || err.to_string().contains("beyond"));
+    }
+
+    #[test]
+    fn read_raw_chunk_at_reads_directory_selected_chunk() {
+        let archive = build_archive_bytes(b"alpha\nbeta\n", SearchSummaryMode::MeshBigram);
+        let metadata = read_archive_metadata(&mut Cursor::new(archive.clone())).unwrap();
+        let mut cursor = Cursor::new(archive);
+        let raw = read_raw_chunk_at(&mut cursor, &metadata.entries[0]).unwrap();
+        let decoded = raw.decode().unwrap();
+
+        assert_eq!(decoded.data, b"alpha\nbeta\n");
+    }
+
     fn assert_round_trip_bytes(
         data: &[u8],
         summary_mode: SearchSummaryMode,
@@ -1203,6 +1625,23 @@ mod tests {
             )
             .unwrap();
             writer.write_chunk(&chunk).unwrap();
+            writer.finish().unwrap();
+        }
+        out
+    }
+
+
+    fn build_empty_archive_bytes() -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let writer = ZlgWriter::new_with_profile(
+                &mut out,
+                20,
+                CompressionMode::Standard,
+                SearchSummaryMode::MeshBigram,
+                BuildProfile::CombinedBitsetSeen,
+            )
+            .unwrap();
             writer.finish().unwrap();
         }
         out

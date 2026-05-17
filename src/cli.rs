@@ -1,7 +1,9 @@
 use crate::chunk::{ChunkPolicy, Chunker};
 use crate::format::{
-    BuildProfile, CompressionMode, DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader,
-    ZlgWriter,
+    default_build_profile_name, default_chunk_policy_name, default_compression_mode_name,
+    default_summary_type_name, read_archive_metadata, read_raw_chunk_at, zlg_format_version,
+    ArchiveMetadata, BuildProfile, CompressionMode, DecodedChunk, RawChunk, StreamDecodeOutcome,
+    ZlgReader, ZlgWriter,
 };
 use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 
@@ -209,7 +211,7 @@ pub struct CompressArgs {
     #[arg(long, value_enum, default_value_t = BuildProfileArg::CombinedBitsetSeen, hide = true)]
     pub build_profile: BuildProfileArg,
 
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub build_stats_json: Option<PathBuf>,
 }
 
@@ -284,7 +286,7 @@ pub struct GrepArgs {
     #[arg(long)]
     pub with_filename: bool,
 
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub stats_json: Option<PathBuf>,
 
     #[arg(long)]
@@ -464,15 +466,6 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
     stdout.flush()?;
     write_grep_stats(args.stats_json.as_ref(), &stats)?;
     grep_exit(total_matches)
-}
-
-#[cfg(test)]
-fn merge_match_limit(max_count: Option<usize>, head: Option<usize>) -> Result<Option<usize>> {
-    match (max_count, head) {
-        (Some(_), Some(_)) => Err(anyhow!("cannot combine duplicate match limits")),
-        (Some(value), None) | (None, Some(value)) => Ok(Some(value)),
-        (None, None) => Ok(None),
-    }
 }
 
 fn write_grep_stats(path: Option<&PathBuf>, stats: &GrepStats) -> Result<()> {
@@ -740,23 +733,71 @@ pub fn run_head(args: HeadTailArgs) -> Result<()> {
 }
 
 pub fn run_tail(args: HeadTailArgs) -> Result<()> {
-    let input = open_input(args.input.as_ref())?;
+    if args.lines == 0 {
+        return Ok(());
+    }
+
+    if let Some(path) = args.input.as_ref() {
+        return run_tail_seekable(path, args.lines);
+    }
+
+    run_tail_streaming(args.lines)
+}
+
+fn run_tail_seekable(path: &PathBuf, lines_wanted: usize) -> Result<()> {
+    let mut file = File::open(path)
+        .with_context(|| format!("failed to open input {}", path.display()))?;
+    let metadata = read_archive_metadata(&mut file)
+        .with_context(|| format!("failed to read zlg metadata from {}", path.display()))?;
+
+    let mut covered = 0u64;
+    let mut start = metadata.entries.len();
+    for index in (0..metadata.entries.len()).rev() {
+        start = index;
+        covered = covered.saturating_add(metadata.entries[index].line_count);
+        if covered >= lines_wanted as u64 {
+            break;
+        }
+    }
+
+    let mut lines: VecDeque<Vec<u8>> = VecDeque::new();
+    if start < metadata.entries.len() {
+        for entry in &metadata.entries[start..] {
+            let raw_chunk = read_raw_chunk_at(&mut file, entry)?;
+            let decoded = raw_chunk.decode()?;
+            push_tail_lines(&mut lines, &decoded.data, lines_wanted);
+        }
+    }
+
+    write_tail_lines(lines)
+}
+
+fn run_tail_streaming(lines_wanted: usize) -> Result<()> {
+    let input = open_input(None)?;
     let mut reader = ZlgReader::new(BufReader::new(input))?;
     let mut lines: VecDeque<Vec<u8>> = VecDeque::new();
 
     while let Some(raw_chunk) = reader.next_raw_chunk()? {
         let decoded = raw_chunk.decode()?;
-        for line in split_lines_preserve(&decoded.data) {
-            if args.lines == 0 {
-                continue;
-            }
-            if lines.len() == args.lines {
-                lines.pop_front();
-            }
-            lines.push_back(line.to_vec());
-        }
+        push_tail_lines(&mut lines, &decoded.data, lines_wanted);
     }
 
+    write_tail_lines(lines)
+}
+
+fn push_tail_lines(lines: &mut VecDeque<Vec<u8>>, data: &[u8], lines_wanted: usize) {
+    if lines_wanted == 0 {
+        return;
+    }
+    for line in split_lines_preserve(data) {
+        if lines.len() == lines_wanted {
+            lines.pop_front();
+        }
+        lines.push_back(line.to_vec());
+    }
+}
+
+fn write_tail_lines(lines: VecDeque<Vec<u8>>) -> Result<()> {
     let mut writer = BufWriter::new(io::stdout().lock());
     for line in lines {
         writer.write_all(&line)?;
@@ -790,11 +831,49 @@ struct ArchiveStats {
     uncompressed_bytes: u64,
     payload_bytes: u64,
     summary_bytes: u64,
+    directory_offset: Option<u64>,
+    directory_bytes: u64,
+    file_bytes: Option<u64>,
+    format_version: Option<u16>,
+    flags: Option<u32>,
+    chunk_policy_id: Option<u32>,
+    compression_mode_id: Option<u32>,
+    used_metadata: bool,
 }
 
 impl ArchiveStats {
     fn read(args: &InfoStatsArgs) -> Result<Self> {
-        let input = open_input(args.input.as_ref())?;
+        if let Some(path) = args.input.as_ref() {
+            let mut file = File::open(path)
+                .with_context(|| format!("failed to open input {}", path.display()))?;
+            let metadata = read_archive_metadata(&mut file)
+                .with_context(|| format!("failed to read zlg metadata from {}", path.display()))?;
+            return Ok(Self::from_metadata(&metadata));
+        }
+
+        Self::read_streaming()
+    }
+
+    fn from_metadata(metadata: &ArchiveMetadata) -> Self {
+        Self {
+            chunks: metadata.chunk_count,
+            lines: metadata.total_lines,
+            uncompressed_bytes: metadata.total_uncompressed_bytes,
+            payload_bytes: metadata.total_payload_bytes(),
+            summary_bytes: metadata.total_summary_bytes(),
+            directory_offset: Some(metadata.directory_offset),
+            directory_bytes: metadata.directory_len,
+            file_bytes: Some(metadata.file_len),
+            format_version: Some(metadata.format_version),
+            flags: Some(metadata.flags),
+            chunk_policy_id: Some(metadata.chunk_policy_id),
+            compression_mode_id: Some(metadata.compression_mode_id),
+            used_metadata: true,
+        }
+    }
+
+    fn read_streaming() -> Result<Self> {
+        let input = open_input(None)?;
         let mut reader = ZlgReader::new(BufReader::new(input))?;
         let mut stats = Self::default();
 
@@ -811,7 +890,19 @@ impl ArchiveStats {
     }
 
     fn total_component_bytes(&self) -> u64 {
-        self.payload_bytes + self.summary_bytes
+        self.payload_bytes + self.summary_bytes + self.directory_bytes
+    }
+
+    fn compression_mode_name(&self) -> &'static str {
+        self.compression_mode_id
+            .map(crate::format::compression_mode_name_from_id)
+            .unwrap_or("unknown")
+    }
+
+    fn chunk_policy_name(&self) -> &'static str {
+        self.chunk_policy_id
+            .map(crate::format::chunk_policy_name_from_id)
+            .unwrap_or("unknown")
     }
 }
 
@@ -819,22 +910,45 @@ pub fn run_info(args: InfoStatsArgs) -> Result<()> {
     let stats = ArchiveStats::read(&args)?;
     if args.json {
         println!(
-            "{{\n  \"format\": \"zlg\",\n  \"chunks\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"known_component_bytes\": {}\n}}",
+            "{{\n  \"format\": \"zlg\",\n  \"format_version\": {},\n  \"chunks\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"directory_offset\": {},\n  \"directory_bytes\": {},\n  \"known_component_bytes\": {},\n  \"archive_bytes\": {},\n  \"compression_mode\": \"{}\",\n  \"chunk_policy\": \"{}\",\n  \"used_metadata\": {}\n}}",
+            json_u16_or_null(stats.format_version),
             stats.chunks,
             stats.lines,
             stats.uncompressed_bytes,
             stats.payload_bytes,
             stats.summary_bytes,
-            stats.total_component_bytes()
+            json_u64_or_null(stats.directory_offset),
+            stats.directory_bytes,
+            stats.total_component_bytes(),
+            json_u64_or_null(stats.file_bytes),
+            stats.compression_mode_name(),
+            stats.chunk_policy_name(),
+            stats.used_metadata
         );
     } else {
         println!("format: zlg");
+        if let Some(version) = stats.format_version {
+            println!("format-version: {version}");
+        }
+        if let Some(flags) = stats.flags {
+            println!("flags: {flags}");
+        }
         println!("chunks: {}", stats.chunks);
         println!("lines: {}", stats.lines);
         println!("uncompressed-bytes: {}", stats.uncompressed_bytes);
         println!("payload-bytes: {}", stats.payload_bytes);
         println!("summary-bytes: {}", stats.summary_bytes);
+        if let Some(directory_offset) = stats.directory_offset {
+            println!("directory-offset: {directory_offset}");
+        }
+        println!("directory-bytes: {}", stats.directory_bytes);
         println!("known-component-bytes: {}", stats.total_component_bytes());
+        if let Some(file_bytes) = stats.file_bytes {
+            println!("archive-bytes: {file_bytes}");
+        }
+        println!("compression-mode: {}", stats.compression_mode_name());
+        println!("chunk-policy: {}", stats.chunk_policy_name());
+        println!("metadata: {}", if stats.used_metadata { "seekable" } else { "streamed" });
     }
     Ok(())
 }
@@ -843,12 +957,16 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
     let stats = ArchiveStats::read(&args)?;
     if args.json {
         println!(
-            "{{\n  \"lines\": {},\n  \"bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {}\n}}",
+            "{{\n  \"lines\": {},\n  \"bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"directory_offset\": {},\n  \"directory_bytes\": {},\n  \"archive_bytes\": {},\n  \"used_metadata\": {}\n}}",
             stats.lines,
             stats.uncompressed_bytes,
             stats.chunks,
             stats.payload_bytes,
-            stats.summary_bytes
+            stats.summary_bytes,
+            json_u64_or_null(stats.directory_offset),
+            stats.directory_bytes,
+            json_u64_or_null(stats.file_bytes),
+            stats.used_metadata
         );
     } else {
         println!("{} {}", stats.lines, stats.uncompressed_bytes);
@@ -861,11 +979,28 @@ pub fn run_version(args: VersionArgs) -> Result<()> {
         println!("zlg {}", env!("CARGO_PKG_VERSION"));
         println!("author: Richard S. Westmoreland <dev@rswestmore.land>");
         println!("license: MIT OR Apache-2.0");
+        println!("format-version: {}", zlg_format_version());
+        println!("default-compression-mode: {}", default_compression_mode_name());
+        println!("default-chunk-policy: {}", default_chunk_policy_name());
+        println!("default-summary-type: {}", default_summary_type_name());
+        println!("default-build-profile: {}", default_build_profile_name());
         println!("compression modes: none, fast, standard, best");
     } else {
         println!("zlg {}", env!("CARGO_PKG_VERSION"));
     }
     Ok(())
+}
+
+fn json_u64_or_null(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "null".to_string())
+}
+
+fn json_u16_or_null(value: Option<u16>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn write_prefix(
@@ -932,16 +1067,14 @@ mod tests {
 
     #[test]
     fn compression_modes_are_locked() {
+        assert_eq!(CompressionMode::None.level(), None);
         assert_eq!(CompressionMode::Fast.level(), Some(3));
         assert_eq!(CompressionMode::Standard.level(), Some(6));
         assert_eq!(CompressionMode::Best.level(), Some(8));
-        assert_eq!(CompressionMode::None.level(), None);
-    }
-
-    #[test]
-    fn merge_match_limit_rejects_head_and_max_count_together() {
-        let err = merge_match_limit(Some(1), Some(1)).unwrap_err();
-        assert!(err.to_string().contains("cannot combine"));
+        assert_eq!(CompressionMode::None.as_str(), "none");
+        assert_eq!(CompressionMode::Fast.as_str(), "fast");
+        assert_eq!(CompressionMode::Standard.as_str(), "standard");
+        assert_eq!(CompressionMode::Best.as_str(), "best");
     }
 
     #[test]
@@ -957,5 +1090,33 @@ mod tests {
         assert!(!help.contains("--chunk-policy"));
         assert!(!help.contains("--summary-mode"));
         assert!(!help.contains("--build-profile"));
+        assert!(!help.contains("--build-stats-json"));
+    }
+
+    #[test]
+    fn grep_help_uses_lowercase_option_policy() {
+        let mut command = Cli::command();
+        let grep = command
+            .find_subcommand_mut("grep")
+            .expect("grep subcommand exists");
+        let help = grep.render_long_help().to_string();
+        assert!(help.contains("-f"));
+        assert!(help.contains("--fixed"));
+        assert!(help.contains("-p"));
+        assert!(help.contains("--pcre2"));
+        assert!(help.contains("--head"));
+        assert!(!help.contains("--max-count"));
+        assert!(!help.contains("-P,"));
+        assert!(!help.contains("-F,"));
+        assert!(!help.contains("--stats-json"));
+    }
+
+    #[test]
+    fn version_long_defaults_are_available() {
+        assert_eq!(zlg_format_version(), 1);
+        assert_eq!(default_compression_mode_name(), "standard");
+        assert_eq!(default_chunk_policy_name(), "fixed-lines8192-cap8m");
+        assert_eq!(default_summary_type_name(), "mesh-bigram ZBM1 v2");
+        assert_eq!(default_build_profile_name(), "combined-bitset-seen");
     }
 }

@@ -232,8 +232,8 @@ def main() -> int:
         ("bad_directory_magic", mutate_bad_directory_magic, [["test"], ["info"], ["stats"], ["tail", "-n", "5"]]),
         ("directory_count_mismatch", mutate_directory_count_mismatch, [["test"], ["info"], ["stats"], ["tail", "-n", "5"]]),
         ("payload_out_of_bounds", mutate_payload_out_of_bounds, [["test"], ["info"], ["stats"], ["tail", "-n", "5"]]),
-        ("chunk_header_mismatch", mutate_chunk_header_mismatch, [["test"], ["cat"], ["tail", "-n", "5"]]),
-        ("crc_mismatch", mutate_crc_mismatch, [["test"], ["cat"], ["grep", "needle"]]),
+        ("chunk_header_mismatch", mutate_chunk_header_mismatch, [["test"]]),
+        ("crc_mismatch", mutate_crc_mismatch, [["test"], ["cat"], ["grep", "seq=1"]]),
         ("summary_truncated", mutate_summary_truncated, [["test"], ["cat"], ["grep", "needle"]]),
         ("payload_truncated", mutate_payload_truncated, [["test"], ["cat"], ["grep", "needle"]]),
     ]

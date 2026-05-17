@@ -981,7 +981,8 @@ impl ArchiveStats {
 
     fn container_overhead_bytes(&self) -> Option<u64> {
         self.file_bytes.map(|file_bytes| {
-            file_bytes.saturating_sub(self.payload_bytes + self.summary_bytes + self.directory_bytes)
+            file_bytes
+                .saturating_sub(self.payload_bytes + self.summary_bytes + self.directory_bytes)
         })
     }
 
@@ -1126,7 +1127,10 @@ fn print_stats_report(stats: &ArchiveStats) {
     print_stat_row("Lines", format_count(stats.lines));
     print_stat_row("Uncompressed bytes", format_bytes(stats.uncompressed_bytes));
     print_stat_row("Chunks", format_count(stats.chunks));
-    print_stat_row("Avg lines/chunk", format_optional_float(stats.avg_lines_per_chunk(), 1));
+    print_stat_row(
+        "Avg lines/chunk",
+        format_optional_float(stats.avg_lines_per_chunk(), 1),
+    );
     print_stat_row(
         "Avg raw bytes/chunk",
         format_optional_bytes_float(stats.avg_uncompressed_bytes_per_chunk()),
@@ -1142,10 +1146,16 @@ fn print_stats_report(stats: &ArchiveStats) {
         format_optional_bytes(stats.container_overhead_bytes()),
     );
     print_stat_row("Compression ratio", format_ratio(stats.compression_ratio()));
-    print_stat_row("Archive/raw size", format_percent(stats.archive_percent_of_raw()));
+    print_stat_row(
+        "Archive/raw size",
+        format_percent(stats.archive_percent_of_raw()),
+    );
     println!();
     println!("Format");
-    print_stat_row("Compression mode", stats.compression_mode_name().to_string());
+    print_stat_row(
+        "Compression mode",
+        stats.compression_mode_name().to_string(),
+    );
     print_stat_row("Chunk policy", stats.chunk_policy_name().to_string());
     print_stat_row("Format version", format_optional_u16(stats.format_version));
     print_stat_row(
@@ -1193,7 +1203,9 @@ fn format_bytes(value: u64) -> String {
 }
 
 fn format_optional_bytes(value: Option<u64>) -> String {
-    value.map(format_bytes).unwrap_or_else(|| "unknown".to_string())
+    value
+        .map(format_bytes)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn format_optional_bytes_float(value: Option<f64>) -> String {
@@ -1388,7 +1400,6 @@ mod tests {
         assert!(!help.contains("-F,"));
         assert!(!help.contains("--stats-json"));
     }
-
 
     #[test]
     fn test_help_exposes_json_and_quiet_options() {

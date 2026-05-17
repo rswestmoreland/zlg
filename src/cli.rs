@@ -1137,7 +1137,10 @@ fn print_info_report(stats: &ArchiveStats) {
     println!("Format");
     print_stat_row("Type", "zlg".to_string());
     print_stat_row("Format version", format_optional_u16(stats.format_version));
-    print_stat_row("Compression mode", stats.compression_mode_name().to_string());
+    print_stat_row(
+        "Compression mode",
+        stats.compression_mode_name().to_string(),
+    );
     print_stat_row("Chunk policy", stats.chunk_policy_name().to_string());
     print_stat_row(
         "Metadata source",
@@ -1162,7 +1165,10 @@ fn print_info_report(stats: &ArchiveStats) {
     print_stat_row("Payload bytes", format_bytes(stats.payload_bytes));
     print_stat_row("Summary bytes", format_bytes(stats.summary_bytes));
     print_stat_row("Directory bytes", format_bytes(stats.directory_bytes));
-    print_stat_row("Other overhead bytes", format_optional_bytes(stats.container_overhead_bytes()));
+    print_stat_row(
+        "Other overhead bytes",
+        format_optional_bytes(stats.container_overhead_bytes()),
+    );
     if let Some(directory_offset) = stats.directory_offset {
         print_stat_row("Directory offset", format_bytes(directory_offset));
     }
@@ -1188,17 +1194,32 @@ fn print_stats_report(stats: &ArchiveStats) {
     println!("Storage");
     print_stat_row("Archive bytes", format_optional_bytes(stats.file_bytes));
     print_stat_row("Payload bytes", format_bytes(stats.payload_bytes));
-    print_stat_row("Payload share", format_percent(stats.payload_percent_of_archive()));
+    print_stat_row(
+        "Payload share",
+        format_percent(stats.payload_percent_of_archive()),
+    );
     print_stat_row("Summary bytes", format_bytes(stats.summary_bytes));
-    print_stat_row("Summary share", format_percent(stats.summary_percent_of_archive()));
+    print_stat_row(
+        "Summary share",
+        format_percent(stats.summary_percent_of_archive()),
+    );
     print_stat_row("Directory bytes", format_bytes(stats.directory_bytes));
-    print_stat_row("Directory share", format_percent(stats.directory_percent_of_archive()));
-    print_stat_row("Metadata share", format_percent(stats.metadata_percent_of_archive()));
+    print_stat_row(
+        "Directory share",
+        format_percent(stats.directory_percent_of_archive()),
+    );
+    print_stat_row(
+        "Metadata share",
+        format_percent(stats.metadata_percent_of_archive()),
+    );
     print_stat_row(
         "Other overhead bytes",
         format_optional_bytes(stats.container_overhead_bytes()),
     );
-    print_stat_row("Other overhead share", format_percent(stats.overhead_percent_of_archive()));
+    print_stat_row(
+        "Other overhead share",
+        format_percent(stats.overhead_percent_of_archive()),
+    );
     print_stat_row("Compression ratio", format_ratio(stats.compression_ratio()));
     print_stat_row(
         "Archive/raw size",
@@ -1491,6 +1512,9 @@ mod tests {
             ..ArchiveStats::default()
         };
         assert_eq!(format_percent(stats.payload_percent_of_archive()), "80.00%");
-        assert_eq!(format_percent(stats.metadata_percent_of_archive()), "15.00%");
+        assert_eq!(
+            format_percent(stats.metadata_percent_of_archive()),
+            "15.00%"
+        );
     }
 }

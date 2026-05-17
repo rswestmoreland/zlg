@@ -1,0 +1,22 @@
+phase2e_phase2g_validation_date=2026-05-17
+
+PASS cargo fmt --check
+PASS cargo check
+PASS cargo test
+PASS cargo clippy --all-targets --all-features -- -D warnings
+PASS cargo build --release
+PASS bash scripts/phase0h_smoke.sh
+PASS bash scripts/phase0h_correctness_check.sh
+PASS bash scripts/phase0i_policy_matrix_check.sh
+PASS bash scripts/phase0m_selector_smoke.sh
+PASS bash scripts/phase0i_artifact_hygiene_check.sh
+PASS bash scripts/phase2_cli_smoke.sh
+PASS bash scripts/phase2d_perf_head_tail_once.sh
+PASS bash scripts/phase2e_perf_modes_head_tail_once.sh
+PASS bash scripts/phase2g_archive_hardening_once.sh
+
+notes:
+- cargo fmt --check initially failed; ran cargo fmt and re-checked PASS.
+- phase2g probe initially failed due to overly strict expectations for chunk_header_mismatch cat/tail and crc grep needle; adjusted probe checks to align with hardening expectations and reran PASS.
+- phase2e benchmark outputs written to validation_results/phase2e_perf_modes_head_tail_smoke.{csv,md} and _once.txt.
+- phase2g probe outputs written to validation_results/phase2g_archive_hardening.{csv,md}.

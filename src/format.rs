@@ -10,8 +10,8 @@ use crate::search::{
     encode_bigram_mesh_summary_lower_only_into, encode_bigram_mesh_summary_radix_into,
     encode_bigram_mesh_summary_rdst_into, encode_bigram_mesh_summary_rdxsort_into,
     encode_bigram_mesh_summary_sparse_first_bitset_into,
-    encode_bigram_mesh_summary_trie_pair_bitset_into, MeshSummaryBuildStats, SearchSummary,
-    EdgeReserveStrategy, SearchSummaryMode,
+    encode_bigram_mesh_summary_trie_pair_bitset_into, EdgeReserveStrategy, MeshSummaryBuildStats,
+    SearchSummary, SearchSummaryMode,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -57,7 +57,6 @@ pub struct DirectoryEntry {
 #[derive(Debug)]
 pub struct RawChunk {
     pub header: ChunkHeader,
-    pub summary: SearchSummary,
     compressed: Vec<u8>,
 }
 
@@ -342,7 +341,6 @@ pub struct BuildStats {
     pub edge_capacity_before: u64,
     pub edge_capacity_after: u64,
 }
-
 
 impl BuildStats {
     pub fn to_json(self, profile: BuildProfile) -> String {
@@ -723,8 +721,14 @@ impl<W: Write> ZlgWriter<W> {
         self.build_stats.pushed_edges += mesh_stats.pushed_edges;
         self.build_stats.unique_edges += mesh_stats.unique_edges;
         self.build_stats.candidate_edge_events += mesh_stats.candidate_edge_events;
-        self.build_stats.edge_capacity_before = self.build_stats.edge_capacity_before.max(mesh_stats.edge_capacity_before);
-        self.build_stats.edge_capacity_after = self.build_stats.edge_capacity_after.max(mesh_stats.edge_capacity_after);
+        self.build_stats.edge_capacity_before = self
+            .build_stats
+            .edge_capacity_before
+            .max(mesh_stats.edge_capacity_before);
+        self.build_stats.edge_capacity_after = self
+            .build_stats
+            .edge_capacity_after
+            .max(mesh_stats.edge_capacity_after);
         self.mesh_prev_unique_edges = mesh_stats.unique_edges as usize;
         self.build_stats.bitset_resizes += mesh_stats.bitset_resizes;
         self.build_stats.bitset_cleared_edges += mesh_stats.bitset_cleared_edges;
@@ -933,7 +937,6 @@ impl<R: Read> ZlgReader<R> {
 
         Ok(RawChunk {
             header: head.header,
-            summary: head.summary,
             compressed,
         })
     }

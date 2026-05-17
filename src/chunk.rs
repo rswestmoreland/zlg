@@ -191,7 +191,8 @@ impl Chunker {
     }
 
     fn trim_line_scratch_if_empty(&mut self) {
-        if self.line_scratch.is_empty() && self.line_scratch.capacity() > MAX_RETAINED_LINE_CAPACITY {
+        if self.line_scratch.is_empty() && self.line_scratch.capacity() > MAX_RETAINED_LINE_CAPACITY
+        {
             self.line_scratch.shrink_to(MAX_RETAINED_LINE_CAPACITY);
         }
     }

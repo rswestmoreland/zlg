@@ -750,7 +750,6 @@ fn open_output(path: Option<&PathBuf>) -> Result<Box<dyn Write>> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

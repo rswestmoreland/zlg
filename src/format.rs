@@ -857,7 +857,6 @@ mod tests {
         assert!(err.to_string().contains("magic"));
     }
 
-
     #[test]
     fn reader_rejects_truncated_global_header() {
         let err = ZlgReader::new(Cursor::new(b"ZLG1".to_vec())).unwrap_err();

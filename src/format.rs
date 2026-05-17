@@ -17,6 +17,10 @@ const GLOBAL_HEADER_LEN: u16 = 32;
 const CHUNK_HEADER_LEN: u16 = 64;
 const DIRECTORY_ENTRY_LEN: u32 = 64;
 const FORMAT_VERSION: u16 = 1;
+// Reader allocation guards for malformed archives. These are safety caps, not
+// format guarantees; normal final-stack chunks are far below these limits.
+const MAX_SUMMARY_LEN: u64 = 64 * 1024 * 1024;
+const MAX_COMPRESSED_CHUNK_LEN: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct ChunkHeader {
@@ -295,23 +299,7 @@ pub struct ZlgWriter<W: Write> {
 }
 
 impl<W: Write> ZlgWriter<W> {
-    #[allow(dead_code)]
-    pub fn new(
-        writer: W,
-        chunk_policy_id: u32,
-        level: i32,
-        summary_mode: SearchSummaryMode,
-    ) -> Result<Self> {
-        Self::new_with_profile(
-            writer,
-            chunk_policy_id,
-            level,
-            summary_mode,
-            BuildProfile::CombinedBitsetSeen,
-        )
-    }
-
-    pub fn new_with_profile(
+pub fn new_with_profile(
         writer: W,
         chunk_policy_id: u32,
         level: i32,
@@ -634,7 +622,12 @@ impl<R: Read> ZlgReader<R> {
         }
 
         let header = self.read_chunk_header_after_magic()?;
-        let mut summary_bytes = vec![0u8; header.summary_len as usize];
+        let summary_len = checked_alloc_len(
+            header.summary_len as u64,
+            MAX_SUMMARY_LEN,
+            "chunk search summary",
+        )?;
+        let mut summary_bytes = vec![0u8; summary_len];
         self.reader
             .read_exact(&mut summary_bytes)
             .context("failed to read chunk search summary")?;
@@ -644,7 +637,12 @@ impl<R: Read> ZlgReader<R> {
     }
 
     pub fn read_chunk_payload(&mut self, head: RawChunkHead) -> Result<RawChunk> {
-        let mut compressed = vec![0u8; head.header.compressed_len as usize];
+        let compressed_len = checked_alloc_len(
+            head.header.compressed_len,
+            MAX_COMPRESSED_CHUNK_LEN,
+            "compressed chunk payload",
+        )?;
+        let mut compressed = vec![0u8; compressed_len];
         self.reader
             .read_exact(&mut compressed)
             .context("failed to read compressed chunk payload")?;
@@ -705,7 +703,9 @@ impl<R: Read> ZlgReader<R> {
         }
 
         let entry_count = read_u64(&mut self.reader)?;
-        let total_len = entry_len as u64 * entry_count;
+        let total_len = (entry_len as u64)
+            .checked_mul(entry_count)
+            .ok_or_else(|| anyhow!("zlg directory length overflow"))?;
         copy_n_to_sink(&mut self.reader, total_len)?;
         Ok(())
     }
@@ -765,6 +765,13 @@ impl<W: Write> Write for CountingWriter<W> {
     fn flush(&mut self) -> std::io::Result<()> {
         self.inner.flush()
     }
+}
+
+fn checked_alloc_len(len: u64, max_len: u64, label: &str) -> Result<usize> {
+    if len > max_len {
+        return Err(anyhow!("{label} length {len} exceeds limit {max_len}"));
+    }
+    usize::try_from(len).with_context(|| format!("{label} length does not fit usize: {len}"))
 }
 
 fn copy_n_to_sink<R: Read>(reader: &mut R, mut len: u64) -> Result<()> {
@@ -844,6 +851,49 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn reader_rejects_invalid_global_magic() {
+        let err = ZlgReader::new(Cursor::new(b"not-zlg!".to_vec())).unwrap_err();
+        assert!(err.to_string().contains("magic"));
+    }
+
+    #[test]
+    fn reader_rejects_excessive_summary_length_before_allocating() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let summary_len_offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8 + 8;
+        archive[summary_len_offset..summary_len_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("summary"));
+    }
+
+    #[test]
+    fn decode_rejects_crc_mismatch() {
+        let mut archive = build_archive_bytes(b"alpha\nbeta\n", SearchSummaryMode::MeshBigram);
+        let crc_offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8 + 8 + 4;
+        archive[crc_offset] ^= 0xff;
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let raw = reader.next_raw_chunk().unwrap().unwrap();
+        let err = raw.decode().unwrap_err();
+        assert!(err.to_string().contains("crc mismatch"));
+    }
+
+    #[test]
+    fn reader_rejects_truncated_compressed_payload() {
+        let mut archive = build_archive_bytes(b"alpha\nbeta\n", SearchSummaryMode::MeshBigram);
+        let summary_len = first_chunk_summary_len(&archive) as usize;
+        let compressed_len = first_chunk_compressed_len(&archive) as usize;
+        let payload_offset = first_chunk_offset() + CHUNK_HEADER_LEN as usize + summary_len;
+        archive.truncate(payload_offset + compressed_len.saturating_sub(1));
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("compressed chunk payload"));
+    }
+
     fn assert_round_trip_bytes(
         data: &[u8],
         summary_mode: SearchSummaryMode,
@@ -873,4 +923,44 @@ mod tests {
         assert_eq!(decoded.data, data);
         assert!(reader.next_raw_chunk().unwrap().is_none());
     }
+    fn build_archive_bytes(data: &[u8], summary_mode: SearchSummaryMode) -> Vec<u8> {
+        let chunk = PlainChunk {
+            index: 0,
+            first_line_number: 1,
+            line_count: data.iter().filter(|byte| **byte == b'\n').count().max(1) as u64,
+            data: data.to_vec(),
+            crc32: crc32(data),
+            flags: 1,
+        };
+
+        let mut out = Vec::new();
+        {
+            let mut writer = ZlgWriter::new_with_profile(
+                &mut out,
+                20,
+                6,
+                summary_mode,
+                BuildProfile::CombinedBitsetSeen,
+            )
+            .unwrap();
+            writer.write_chunk(&chunk).unwrap();
+            writer.finish().unwrap();
+        }
+        out
+    }
+
+    fn first_chunk_offset() -> usize {
+        GLOBAL_HEADER_LEN as usize
+    }
+
+    fn first_chunk_summary_len(archive: &[u8]) -> u32 {
+        let offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8 + 8;
+        u32::from_le_bytes(archive[offset..offset + 4].try_into().unwrap())
+    }
+
+    fn first_chunk_compressed_len(archive: &[u8]) -> u64 {
+        let offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8;
+        u64::from_le_bytes(archive[offset..offset + 8].try_into().unwrap())
+    }
+
 }

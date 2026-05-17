@@ -135,3 +135,16 @@ scripts/phase0i_prebench_once.sh
 ```
 
 This validates the Rust build, smoke tests, correctness checks, all chunk policies, a repeatable pre-bench harness, and artifact hygiene before full benchmark work.
+
+## Cleanup and hardening status
+
+The final stack is now locked. Current cleanup work focuses on removing
+benchmark-only code paths, keeping the normal CLI surface small, and hardening
+archive parsing against malformed input. The reader should fail cleanly for bad
+magic, unsupported versions, excessive length fields, malformed summaries,
+truncated compressed payloads, and CRC mismatches.
+
+Future usability work is intentionally deferred until cleanup and hardening are
+validated. Deferred topics include globbing/many-file workflows, conversion from
+other compressed formats, richer grep/cat/head/tail-style output modes,
+top-N/count/sort helpers, and bounded async or parallel pipelines.

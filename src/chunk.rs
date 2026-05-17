@@ -2,7 +2,11 @@ use anyhow::Result;
 use crc32fast::Hasher;
 use std::io::BufRead;
 
+// Start with a modest chunk buffer and let normal log chunks grow as needed.
+// The 8 MiB production cap prevents ordinary chunks from becoming unbounded.
 const INITIAL_CHUNK_CAPACITY: usize = 256 * 1024;
+
+// Keep unusually large single-line buffers from staying resident forever.
 const MAX_RETAINED_LINE_CAPACITY: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]

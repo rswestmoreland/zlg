@@ -1,0 +1,15 @@
+Phase 1n prep summary
+
+Created production cleanup and hardening checkpoint.
+
+Scope:
+- Removed blanket dead_code allowance from src/search.rs.
+- Removed old experimental mesh builder functions from production source.
+- Removed temporary tools/phase1m_baseline_src snapshot.
+- Added allocation guards and malformed-input tests.
+- Added Phase 1n validation script and docs/Codex prompt.
+
+Local prep checks performed in ChatGPT sandbox:
+- Python/rust text edits completed.
+- ASCII-only docs/scripts expected.
+- Cargo validation not available in this environment; Codex must run the full script.

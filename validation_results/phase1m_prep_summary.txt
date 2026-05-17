@@ -1,0 +1,20 @@
+Phase 1m prep checkpoint created.
+
+Scope:
+- Correct missed cleanup from Phase 1l.
+- Keep the final production stack fixed.
+- Hide normal CLI surface for build-profile, summary-mode, and chunk-policy details.
+- Add --preset fast|standard|best mapping to zstd levels 3/6/8.
+- Keep --level as an advanced override, mutually exclusive with --preset.
+- Simplify ZlgWriter to route normal production writes through combined-bitset-seen.
+- Add same-run A/B benchmark against a Phase 1k source snapshot.
+- Add cache-control mitigation through drop_caches when available, otherwise a cache-buster file.
+
+Local prep checks performed in ChatGPT:
+- Python syntax check for Phase 1m benchmark script.
+- Bash syntax check for Phase 1m one-shot script.
+- ASCII scan.
+- Path length scan.
+- Zip integrity after packaging.
+
+Cargo was not available in ChatGPT. Codex must run the validation script and fix any compile, fmt, clippy, or benchmark issues.

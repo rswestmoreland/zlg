@@ -152,30 +152,55 @@ impl From<SummaryModeArg> for SearchSummaryMode {
 
 #[derive(Clone, Debug, ValueEnum)]
 pub enum BuildProfileArg {
+    Current,
+    MeshScratch,
+    ZstdBulk,
+    Combined,
+    CombinedRadix,
+    CombinedHash,
+    CombinedIdentityHash,
+    CombinedRdxsort,
+    CombinedRdst,
+    CombinedCaseRaw,
+    CombinedLowerOnly,
+    CombinedInlineLowerDelta,
     CombinedBitsetSeen,
+    CombinedBitsetSeenStreamZstd,
+    CombinedBitsetPagedSeen,
+    CombinedLowerOnlyBitsetSeen,
+    CombinedSparseFirstBitset,
+    CombinedTriePairBitset,
+    CombinedGroupedBuckets,
+    CombinedBucket256,
 }
 
 impl From<BuildProfileArg> for BuildProfile {
     fn from(value: BuildProfileArg) -> Self {
         match value {
+            BuildProfileArg::Current => BuildProfile::Current,
+            BuildProfileArg::MeshScratch => BuildProfile::MeshScratch,
+            BuildProfileArg::ZstdBulk => BuildProfile::ZstdBulk,
+            BuildProfileArg::Combined => BuildProfile::Combined,
+            BuildProfileArg::CombinedRadix => BuildProfile::CombinedRadix,
+            BuildProfileArg::CombinedHash => BuildProfile::CombinedHash,
+            BuildProfileArg::CombinedIdentityHash => BuildProfile::CombinedIdentityHash,
+            BuildProfileArg::CombinedRdxsort => BuildProfile::CombinedRdxsort,
+            BuildProfileArg::CombinedRdst => BuildProfile::CombinedRdst,
+            BuildProfileArg::CombinedCaseRaw => BuildProfile::CombinedCaseRaw,
+            BuildProfileArg::CombinedLowerOnly => BuildProfile::CombinedLowerOnly,
+            BuildProfileArg::CombinedInlineLowerDelta => BuildProfile::CombinedInlineLowerDelta,
             BuildProfileArg::CombinedBitsetSeen => BuildProfile::CombinedBitsetSeen,
-        }
-    }
-}
-
-#[derive(Clone, Debug, ValueEnum)]
-pub enum CompressionPresetArg {
-    Fast,
-    Standard,
-    Best,
-}
-
-impl CompressionPresetArg {
-    fn level(&self) -> i32 {
-        match self {
-            CompressionPresetArg::Fast => 3,
-            CompressionPresetArg::Standard => 6,
-            CompressionPresetArg::Best => 8,
+            BuildProfileArg::CombinedBitsetSeenStreamZstd => {
+                BuildProfile::CombinedBitsetSeenStreamZstd
+            }
+            BuildProfileArg::CombinedBitsetPagedSeen => BuildProfile::CombinedBitsetPagedSeen,
+            BuildProfileArg::CombinedLowerOnlyBitsetSeen => {
+                BuildProfile::CombinedLowerOnlyBitsetSeen
+            }
+            BuildProfileArg::CombinedSparseFirstBitset => BuildProfile::CombinedSparseFirstBitset,
+            BuildProfileArg::CombinedTriePairBitset => BuildProfile::CombinedTriePairBitset,
+            BuildProfileArg::CombinedGroupedBuckets => BuildProfile::CombinedGroupedBuckets,
+            BuildProfileArg::CombinedBucket256 => BuildProfile::CombinedBucket256,
         }
     }
 }
@@ -187,19 +212,16 @@ pub struct CompressArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    #[arg(short = 'l', long)]
-    pub level: Option<i32>,
+    #[arg(short = 'l', long, default_value_t = 6)]
+    pub level: i32,
 
-    #[arg(long, value_enum)]
-    pub preset: Option<CompressionPresetArg>,
-
-    #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192Cap8m, hide = true)]
+    #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192Cap8m)]
     pub chunk_policy: ChunkPolicyArg,
 
-    #[arg(long, value_enum, default_value_t = SummaryModeArg::MeshBigram, hide = true)]
+    #[arg(long, value_enum, default_value_t = SummaryModeArg::MeshBigram)]
     pub summary_mode: SummaryModeArg,
 
-    #[arg(long, value_enum, default_value_t = BuildProfileArg::CombinedBitsetSeen, hide = true)]
+    #[arg(long, value_enum, default_value_t = BuildProfileArg::CombinedBitsetSeen)]
     pub build_profile: BuildProfileArg,
 
     #[arg(long)]
@@ -266,12 +288,6 @@ pub struct GrepArgs {
 pub fn run_compress(args: CompressArgs) -> Result<()> {
     let input = open_input(args.input.as_ref())?;
     let output = open_output(args.output.as_ref())?;
-    if args.level.is_some() && args.preset.is_some() {
-        return Err(anyhow!("cannot combine --level and --preset"));
-    }
-    let level = args
-        .level
-        .unwrap_or_else(|| args.preset.unwrap_or(CompressionPresetArg::Standard).level());
     let policy: ChunkPolicy = args.chunk_policy.into();
     let summary_mode: SearchSummaryMode = args.summary_mode.into();
 
@@ -280,7 +296,7 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
 
     let build_profile: BuildProfile = args.build_profile.into();
     let mut zlg_writer =
-        ZlgWriter::new_with_profile(writer, policy.id(), level, summary_mode, build_profile)?;
+        ZlgWriter::new_with_profile(writer, policy.id(), args.level, summary_mode, build_profile)?;
     let mut chunker = Chunker::new(policy);
 
     while let Some(chunk) = chunker.next_chunk(&mut reader)? {
@@ -480,10 +496,9 @@ fn grep_one(
     let mut match_count = 0usize;
     let mut file_has_match = false;
 
-    while let Some(raw_head) = reader.next_chunk_head()? {
+    while let Some(raw_chunk) = reader.next_raw_chunk()? {
         stats.chunks_total += 1;
-        if !matcher.chunk_may_match(&raw_head.summary) {
-            reader.skip_chunk_payload(&raw_head.header)?;
+        if !matcher.chunk_may_match(&raw_chunk.summary) {
             stats.chunks_skipped += 1;
             continue;
         }
@@ -493,7 +508,6 @@ fn grep_one(
         }
 
         stats.candidate_chunks += 1;
-        let raw_chunk = reader.read_chunk_payload(raw_head)?;
         let remaining = options
             .max_count
             .map(|limit| limit.saturating_sub(match_count));

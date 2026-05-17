@@ -20,17 +20,17 @@ Implemented as source files:
 - default Rust regex grep
 - enhanced `-P` mode using PCRE2 bytes regex
 - line-number, only-matching, count, ignore-case, invert-match, and files-with-matches flags
-- fixed-line, progressive-line, byte-target, and hybrid chunk policy options
-- build profiles for mesh-bigram summary builder experiments
+- finalized fixed-lines8192 chunking with an 8 MiB byte cap
+- finalized mesh-bigram summary builder path
 
 ## Important status
 
 This is not a stable file format.
 
-The current file format is still experimental and must not be frozen yet. The current default compression path is fixed-lines8192 with an 8 MiB byte cap + mesh-bigram + combined-bitset-seen at zstd level 6.
+The current file format is still experimental and must not be frozen yet. The current default compression path is fixed-lines8192 with an 8 MiB byte cap + mesh-bigram + combined-bitset-seen at the standard preset, zstd level 6.
 
 
-## Active build-profile baseline
+## Active production stack
 
 The selected strategy is:
 
@@ -47,11 +47,17 @@ fixed-lines8192 with 8 MiB byte cap
 + --head / --max-count early stop
 ```
 
-`combined-bitset-seen` is the selected production builder candidate. Earlier sort, hash, sparse, trie, paged, and lower-only builder experiments are retained only where still needed for historical diagnostics or compatibility; they are not active production candidates.
+`combined-bitset-seen` is the selected production builder. Earlier sort, hash, sparse, trie, paged, and lower-only builder experiments are not active production candidates and are hidden or removed from the normal CLI surface.
 
-The standard/default compression level is zstd level 6. Phase 1k adds diagnostics for zstd level 8 versus gzip level 8 and keeps level 3/6/9 data for fast/standard/best preset planning.
+Compression presets are:
 
-Dropped external sort experiments no longer require `rdxsort` or `rdst` dependencies.
+```text
+fast     = zstd level 3
+standard = zstd level 6
+best     = zstd level 8
+```
+
+The standard/default preset is zstd level 6. Dropped external sort experiments no longer require `rdxsort` or `rdst` dependencies.
 
 ## Success criteria
 

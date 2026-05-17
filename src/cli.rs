@@ -1,6 +1,7 @@
 use crate::chunk::{ChunkPolicy, Chunker};
 use crate::format::{
-    BuildProfile, CompressionMode, DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader, ZlgWriter,
+    BuildProfile, CompressionMode, DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader,
+    ZlgWriter,
 };
 use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 

@@ -68,7 +68,7 @@ compare \
     "cargo run --quiet -- grep -v 'warning' '$zlg_file'"
 
 fancy_actual="$tmp_dir/fancy.actual"
-cargo run --quiet -- grep -oP '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual"
+cargo run --quiet -- grep -o -p '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual"
 if [[ "$(cat "$fancy_actual")" != 'abc' ]]; then
     echo "phase0h correctness failed: fancy lookbehind extraction" >&2
     cat "$fancy_actual" >&2

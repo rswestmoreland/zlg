@@ -2,7 +2,7 @@
 
 `zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, and Phase 2c adds seekable metadata use for file-backed info/stats/tail plus a compact performance smoke bench. Top and convert remain design/deferred work.
+The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, and Phase 2c was validated through commit d1179fc with seekable metadata use for file-backed info/stats/tail plus a compact performance smoke bench. Phase 2d prepares benchmark measurement reliability, larger needle-in-haystack testing, and head/tail comparisons. Top and convert remain design/deferred work.
 
 ## Current status
 
@@ -128,19 +128,28 @@ phase0i artifact hygiene
 phase2 CLI smoke
 ```
 
-## Phase 2c work
+## Phase 2c and Phase 2d work
 
-Phase 2c focuses on:
+Phase 2c implemented and validated:
 
 - seekable footer/directory metadata reading
 - metadata-backed `tail`, `info`, and `stats` for file inputs
 - help/version/docs alignment
 - a compact performance smoke bench comparing plain `grep`, `zgrep`, and `zlg grep`
 
+Phase 2d prepares the next validation pass:
+
+- reliable CPU/RSS capture using Linux `os.wait4()`
+- larger needle-in-haystack search testing
+- `head` and `tail` comparisons against raw logs and gzip streams
+- stronger output-hash parity checks for head/tail paths
+
 Recommended active documents:
 
 ```text
 docs/CLI_DESIGN_DECISIONS_PHASE2.md
 docs/PHASE2C_METADATA_AND_PERF_SMOKE.md
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2C.md
+docs/PHASE2D_BENCH_RELIABILITY_HEAD_TAIL.md
+docs/BENCHMARK_MEASUREMENT_RELIABILITY.md
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2D.md
 ```

@@ -1,0 +1,54 @@
+Phase 2d ChatGPT prep summary
+
+Purpose:
+- Fix benchmark measurement reliability by adding an os.wait4-based timing/resource path.
+- Add larger needle-in-haystack search testing so zlg has more chunks available to skip.
+- Add head and tail comparisons against raw logs and gzip streams.
+- Strengthen Phase 2 CLI smoke checks for head/tail output parity.
+
+Files added:
+- tools/phase2d_perf_head_tail_bench.py
+- scripts/phase2d_perf_head_tail_once.sh
+- docs/BENCHMARK_MEASUREMENT_RELIABILITY.md
+- docs/PHASE2D_BENCH_RELIABILITY_HEAD_TAIL.md
+- docs/ZLG_NEXT_CHAT_PROMPT_PHASE2D.md
+- validation_results/phase2d_chatgpt_prep_summary.txt
+
+Files updated:
+- README.md
+- scripts/phase2_cli_smoke.sh
+
+Important implementation notes:
+- The new bench uses Python os.wait4() for wall/user/system/CPU/RSS metrics.
+- The new bench validates that required resource metric fields are populated.
+- The new bench validates output hash parity across equivalent backends.
+- Search compares grep, zgrep, and zlg grep.
+- Head compares head, gzip -dc | head, and zlg head.
+- Tail compares tail, gzip -dc | tail, and zlg tail.
+- The larger needle scenario defaults to 1,000,000 lines with the fixed-string needle around 80 percent deep.
+- Generated raw logs, gzip files, zlg archives, and command outputs are kept in a temp directory and must not be committed.
+
+Checks run in ChatGPT sandbox:
+- python3 -m py_compile tools/phase2d_perf_head_tail_bench.py
+- bash -n scripts/phase2_cli_smoke.sh
+- bash -n scripts/phase2d_perf_head_tail_once.sh
+- ASCII scan passed after removing Python __pycache__
+- path length check passed
+
+Checks not run in ChatGPT sandbox:
+- cargo fmt --check
+- cargo check
+- cargo test
+- cargo clippy --all-targets --all-features -- -D warnings
+- cargo build --release
+- runtime zlg smoke/bench scripts
+
+Reason:
+- Rust toolchain and built zlg binary are not available in this sandbox.
+
+Required Codex role:
+- validation/fix only
+- run the required Rust validation and scripts
+- run the new Phase 2d bench
+- fix compile/test/clippy/runtime bugs discovered by validation
+- ensure CPU/RSS fields are populated and do not accept blank metric fields

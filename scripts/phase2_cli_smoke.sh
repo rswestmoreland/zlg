@@ -54,8 +54,14 @@ for mode in none fast standard best; do
   $zlg stats "$archive" --json >/dev/null
   $zlg grep -f alpha "$archive" >/dev/null
   $zlg grep --head 1 alpha "$archive" >/dev/null
-  $zlg head -n 2 "$archive" >/dev/null
-  $zlg tail -n 2 "$archive" >/dev/null
+  $zlg head -n 2 "$archive" > "$workdir/${mode}_head.txt"
+  head -n 2 "$input" > "$workdir/${mode}_head_expected.txt"
+  cmp "$workdir/${mode}_head_expected.txt" "$workdir/${mode}_head.txt"
+  $zlg tail -n 2 "$archive" > "$workdir/${mode}_tail.txt"
+  tail -n 2 "$input" > "$workdir/${mode}_tail_expected.txt"
+  cmp "$workdir/${mode}_tail_expected.txt" "$workdir/${mode}_tail.txt"
+  $zlg tail -n 99 "$archive" > "$workdir/${mode}_tail_all.txt"
+  cmp "$input" "$workdir/${mode}_tail_all.txt"
   $zlg grep -p '(?<=alpha )[a-z]+' "$archive" >/dev/null
   $zlg grep -o -p '(?<=alpha )[a-z]+' "$archive" >/dev/null
   if $zlg grep -f alpha -p alpha "$archive" >/dev/null 2>&1; then

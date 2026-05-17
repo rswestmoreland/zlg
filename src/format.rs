@@ -23,7 +23,6 @@ const CHUNK_FLAG_STORED: u16 = 0x8000;
 const MAX_SUMMARY_LEN: u64 = 64 * 1024 * 1024;
 const MAX_COMPRESSED_CHUNK_LEN: u64 = 1024 * 1024 * 1024;
 
-
 const FOOTER_LEN: u64 = 48;
 const DIRECTORY_HEADER_LEN: u64 = 16;
 
@@ -126,7 +125,6 @@ pub struct DirectoryEntry {
     pub flags: u32,
 }
 
-
 #[derive(Clone, Debug)]
 pub struct ArchiveMetadata {
     pub format_version: u16,
@@ -148,7 +146,10 @@ impl ArchiveMetadata {
     }
 
     pub fn total_summary_bytes(&self) -> u64 {
-        self.entries.iter().map(|entry| entry.summary_len as u64).sum()
+        self.entries
+            .iter()
+            .map(|entry| entry.summary_len as u64)
+            .sum()
     }
 }
 
@@ -885,7 +886,6 @@ impl<R: Read> ZlgReader<R> {
     }
 }
 
-
 pub fn read_archive_metadata<R: Read + Seek>(reader: &mut R) -> Result<ArchiveMetadata> {
     let file_len = reader
         .seek(SeekFrom::End(0))
@@ -1051,7 +1051,10 @@ pub fn read_archive_metadata<R: Read + Seek>(reader: &mut R) -> Result<ArchiveMe
     })
 }
 
-pub fn read_raw_chunk_at<R: Read + Seek>(reader: &mut R, entry: &DirectoryEntry) -> Result<RawChunk> {
+pub fn read_raw_chunk_at<R: Read + Seek>(
+    reader: &mut R,
+    entry: &DirectoryEntry,
+) -> Result<RawChunk> {
     reader
         .seek(SeekFrom::Start(entry.chunk_offset))
         .context("failed to seek to zlg chunk")?;
@@ -1123,15 +1126,23 @@ fn read_directory_entry<R: Read>(reader: &mut R) -> Result<DirectoryEntry> {
     })
 }
 
-fn validate_directory_entry(index: u64, entry: &DirectoryEntry, directory_offset: u64) -> Result<()> {
+fn validate_directory_entry(
+    index: u64,
+    entry: &DirectoryEntry,
+    directory_offset: u64,
+) -> Result<()> {
     if entry.chunk_offset < GLOBAL_HEADER_LEN as u64 {
         return Err(anyhow!("zlg chunk {index} starts before global header"));
     }
     if entry.chunk_offset >= directory_offset {
-        return Err(anyhow!("zlg chunk {index} starts inside directory/footer area"));
+        return Err(anyhow!(
+            "zlg chunk {index} starts inside directory/footer area"
+        ));
     }
     if entry.summary_offset < entry.chunk_offset {
-        return Err(anyhow!("zlg chunk {index} summary offset is before chunk offset"));
+        return Err(anyhow!(
+            "zlg chunk {index} summary offset is before chunk offset"
+        ));
     }
     let summary_end = checked_add_u64(
         entry.summary_offset,
@@ -1139,17 +1150,14 @@ fn validate_directory_entry(index: u64, entry: &DirectoryEntry, directory_offset
         "summary end",
     )?;
     if summary_end != entry.compressed_offset {
-        return Err(anyhow!(
-            "zlg chunk {index} summary/payload layout mismatch"
-        ));
+        return Err(anyhow!("zlg chunk {index} summary/payload layout mismatch"));
     }
-    let payload_end = checked_add_u64(
-        entry.compressed_offset,
-        entry.compressed_len,
-        "payload end",
-    )?;
+    let payload_end =
+        checked_add_u64(entry.compressed_offset, entry.compressed_len, "payload end")?;
     if payload_end > directory_offset {
-        return Err(anyhow!("zlg chunk {index} payload extends beyond directory"));
+        return Err(anyhow!(
+            "zlg chunk {index} payload extends beyond directory"
+        ));
     }
     Ok(())
 }
@@ -1473,7 +1481,6 @@ mod tests {
         assert!(err.to_string().contains("compressed chunk payload"));
     }
 
-
     #[test]
     fn metadata_reader_reads_valid_archive() {
         let archive = build_archive_bytes(b"alpha\nbeta\n", SearchSummaryMode::MeshBigram);
@@ -1482,10 +1489,19 @@ mod tests {
         assert_eq!(metadata.format_version, FORMAT_VERSION);
         assert_eq!(metadata.chunk_count, 1);
         assert_eq!(metadata.total_lines, 2);
-        assert_eq!(metadata.total_uncompressed_bytes, b"alpha\nbeta\n".len() as u64);
+        assert_eq!(
+            metadata.total_uncompressed_bytes,
+            b"alpha\nbeta\n".len() as u64
+        );
         assert_eq!(metadata.entries.len(), 1);
-        assert_eq!(metadata.total_payload_bytes(), metadata.entries[0].compressed_len);
-        assert_eq!(metadata.total_summary_bytes(), metadata.entries[0].summary_len as u64);
+        assert_eq!(
+            metadata.total_payload_bytes(),
+            metadata.entries[0].compressed_len
+        );
+        assert_eq!(
+            metadata.total_summary_bytes(),
+            metadata.entries[0].summary_len as u64
+        );
     }
 
     #[test]
@@ -1629,7 +1645,6 @@ mod tests {
         }
         out
     }
-
 
     fn build_empty_archive_bytes() -> Vec<u8> {
         let mut out = Vec::new();

@@ -1,0 +1,8 @@
+Phase 2c performance smoke bench
+timestamp_utc=2026-05-17T16:37:00Z
+zlg_bin=target/release/zlg
+
+wrote validation_results/phase2c_perf_smoke.csv
+wrote validation_results/phase2c_perf_smoke.md
+
+Phase 2c performance smoke bench complete

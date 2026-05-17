@@ -61,7 +61,6 @@ pub struct MeshSummaryBuildStats {
     pub edge_capacity_after: u64,
 }
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchSummaryMode {
     Bitmap,
@@ -77,7 +76,6 @@ pub enum EdgeReserveStrategy {
     Capped,
     PreviousUnique,
 }
-
 
 const PATH_WINDOW_MAGIC: &[u8; 4] = b"ZPW1";
 const PATH_WINDOW_VERSION: u16 = 1;
@@ -1061,7 +1059,6 @@ fn collect_bigram_mesh_edges(
     }
     stats
 }
-
 
 fn reserve_bitset_seen_edges(
     edges: &mut Vec<u32>,

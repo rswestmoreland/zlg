@@ -1442,7 +1442,6 @@ mod tests {
         assert!(SearchSummary::decode(&bytes).is_err());
     }
 
-
     #[test]
     fn matcher_rejects_invalid_rust_regex() {
         let options = test_options();

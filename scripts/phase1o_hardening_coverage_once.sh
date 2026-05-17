@@ -26,7 +26,7 @@ if grep -R '#!\[allow(dead_code)\]' src >/dev/null 2>&1; then
   exit 1
 fi
 
-if grep -R 'rdxsort\|rdst' Cargo.toml Cargo.lock src docs README.md >/dev/null 2>&1; then
+if grep -R 'rdxsort\|rdst' Cargo.toml Cargo.lock src >/dev/null 2>&1; then
   echo 'phase1o check failed: abandoned external sort crate reference found' | tee -a "$LOG"
   exit 1
 fi

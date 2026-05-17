@@ -1,0 +1,24 @@
+Phase 1o prep summary
+
+Prepared hardening coverage expansion checkpoint.
+
+Changes:
+- Added additional malformed archive tests in src/format.rs.
+- Added invalid regex/PCRE2 construction tests in src/search.rs.
+- Added CLI guard and preset/help-surface tests in src/cli.rs.
+- Added scripts/phase1o_hardening_coverage_once.sh.
+- Added docs/PHASE1O_HARDENING_COVERAGE_EXPANSION.md.
+- Added docs/CODEX_PHASE1O_PROMPT.md.
+- Updated README hardening status text.
+
+Locked stack unchanged:
+- fixed-lines8192-cap8m
+- mesh-bigram ZBM1 v2
+- combined-bitset-seen
+- current reserve behavior
+- zstd::bulk::Compressor
+- presets fast=3, standard=6, best=8
+- streaming grep with summary-first skip and memchr line splitting
+
+Local prep checks in ChatGPT:
+- Cargo was unavailable, so Rust validation must be run in Codex.

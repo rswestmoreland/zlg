@@ -1442,6 +1442,37 @@ mod tests {
         assert!(SearchSummary::decode(&bytes).is_err());
     }
 
+
+    #[test]
+    fn matcher_rejects_invalid_rust_regex() {
+        let options = test_options();
+        assert!(Matcher::new("(", options).is_err());
+    }
+
+    #[test]
+    fn matcher_rejects_invalid_pcre2_regex() {
+        let options = GrepOptions {
+            perl_regexp: true,
+            ..test_options()
+        };
+        assert!(Matcher::new("(", options).is_err());
+    }
+
+    fn test_options() -> GrepOptions {
+        GrepOptions {
+            fixed_strings: false,
+            perl_regexp: false,
+            only_matching: false,
+            line_number: false,
+            ignore_case: false,
+            count: false,
+            files_with_matches: false,
+            invert_match: false,
+            max_count: None,
+            stream_decode: false,
+        }
+    }
+
     #[test]
     fn mesh_summary_handles_utf8_as_bytes() {
         let data = b"username=\xe3\x81\x9f\xe3\x82\x8d\xe3\x81\x86 user=\xe3\x82\xab\xe3\x83\x8a msg=\"\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x88\x90\xe5\x8a\x9f\"\n";

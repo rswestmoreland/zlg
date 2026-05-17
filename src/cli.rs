@@ -749,3 +749,36 @@ fn open_output(path: Option<&PathBuf>) -> Result<Box<dyn Write>> {
         None => Ok(Box::new(io::stdout().lock())),
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn compression_preset_levels_are_locked() {
+        assert_eq!(CompressionPresetArg::Fast.level(), 3);
+        assert_eq!(CompressionPresetArg::Standard.level(), 6);
+        assert_eq!(CompressionPresetArg::Best.level(), 8);
+    }
+
+    #[test]
+    fn merge_match_limit_rejects_head_and_max_count_together() {
+        let err = merge_match_limit(Some(1), Some(1)).unwrap_err();
+        assert!(err.to_string().contains("cannot combine"));
+    }
+
+    #[test]
+    fn production_options_are_hidden_from_normal_compress_help() {
+        let mut command = Cli::command();
+        let compress = command
+            .find_subcommand_mut("compress")
+            .expect("compress subcommand exists");
+        let help = compress.render_long_help().to_string();
+        assert!(help.contains("--preset"));
+        assert!(!help.contains("--chunk-policy"));
+        assert!(!help.contains("--summary-mode"));
+        assert!(!help.contains("--build-profile"));
+    }
+}

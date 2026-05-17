@@ -857,6 +857,146 @@ mod tests {
         assert!(err.to_string().contains("magic"));
     }
 
+
+    #[test]
+    fn reader_rejects_truncated_global_header() {
+        let err = ZlgReader::new(Cursor::new(b"ZLG1".to_vec())).unwrap_err();
+        assert!(err.to_string().contains("global header"));
+    }
+
+    #[test]
+    fn reader_rejects_unsupported_global_version() {
+        let mut archive = global_header_bytes();
+        archive[8..10].copy_from_slice(&99u16.to_le_bytes());
+        let err = ZlgReader::new(Cursor::new(archive)).unwrap_err();
+        assert!(err.to_string().contains("version"));
+    }
+
+    #[test]
+    fn reader_rejects_unsupported_chunk_header_length() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let header_len_offset = first_chunk_offset() + 4;
+        archive[header_len_offset..header_len_offset + 2].copy_from_slice(&99u16.to_le_bytes());
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("chunk header length"));
+    }
+
+    #[test]
+    fn reader_rejects_unexpected_record_magic() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        archive[first_chunk_offset()..first_chunk_offset() + 4].copy_from_slice(b"BAD!");
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("record magic"));
+    }
+
+    #[test]
+    fn reader_rejects_excessive_compressed_length_before_allocating() {
+        let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
+        let compressed_len_offset = first_chunk_offset() + 4 + 2 + 2 + 8 + 8 + 8 + 8;
+        archive[compressed_len_offset..compressed_len_offset + 8]
+            .copy_from_slice(&(MAX_COMPRESSED_CHUNK_LEN + 1).to_le_bytes());
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let head = reader.next_chunk_head().unwrap().unwrap();
+        let err = reader.read_chunk_payload(head).unwrap_err();
+        assert!(err.to_string().contains("compressed chunk payload"));
+    }
+
+    #[test]
+    fn reader_rejects_truncated_summary_bytes() {
+        let mut archive = build_archive_bytes(b"alpha\nbeta\n", SearchSummaryMode::MeshBigram);
+        let summary_len = first_chunk_summary_len(&archive) as usize;
+        let summary_offset = first_chunk_offset() + CHUNK_HEADER_LEN as usize;
+        archive.truncate(summary_offset + summary_len.saturating_sub(1));
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_chunk_head().unwrap_err();
+        assert!(err.to_string().contains("chunk search summary"));
+    }
+
+    #[test]
+    fn reader_rejects_unsupported_directory_entry_length() {
+        let mut archive = global_header_bytes();
+        archive.extend_from_slice(DIR_MAGIC);
+        archive.extend_from_slice(&63u32.to_le_bytes());
+        archive.extend_from_slice(&0u64.to_le_bytes());
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("directory entry length"));
+    }
+
+    #[test]
+    fn reader_rejects_directory_length_overflow() {
+        let mut archive = global_header_bytes();
+        archive.extend_from_slice(DIR_MAGIC);
+        archive.extend_from_slice(&DIRECTORY_ENTRY_LEN.to_le_bytes());
+        archive.extend_from_slice(&u64::MAX.to_le_bytes());
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("directory length overflow"));
+    }
+
+    #[test]
+    fn reader_rejects_truncated_directory_payload() {
+        let mut archive = global_header_bytes();
+        archive.extend_from_slice(DIR_MAGIC);
+        archive.extend_from_slice(&DIRECTORY_ENTRY_LEN.to_le_bytes());
+        archive.extend_from_slice(&1u64.to_le_bytes());
+        archive.extend_from_slice(&[0u8; 8]);
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("failed to fill whole buffer"));
+    }
+
+    #[test]
+    fn reader_rejects_invalid_footer_magic() {
+        let mut archive = global_header_bytes();
+        archive.extend_from_slice(DIR_MAGIC);
+        archive.extend_from_slice(&DIRECTORY_ENTRY_LEN.to_le_bytes());
+        archive.extend_from_slice(&0u64.to_le_bytes());
+        archive.extend_from_slice(b"BAD!");
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("footer magic"));
+    }
+
+    #[test]
+    fn reader_rejects_invalid_footer_length() {
+        let mut archive = global_header_bytes();
+        archive.extend_from_slice(DIR_MAGIC);
+        archive.extend_from_slice(&DIRECTORY_ENTRY_LEN.to_le_bytes());
+        archive.extend_from_slice(&0u64.to_le_bytes());
+        archive.extend_from_slice(FOOTER_MAGIC);
+        archive.extend_from_slice(&4u32.to_le_bytes());
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("footer length"));
+    }
+
+    #[test]
+    fn reader_rejects_truncated_footer_payload() {
+        let mut archive = global_header_bytes();
+        archive.extend_from_slice(DIR_MAGIC);
+        archive.extend_from_slice(&DIRECTORY_ENTRY_LEN.to_le_bytes());
+        archive.extend_from_slice(&0u64.to_le_bytes());
+        archive.extend_from_slice(FOOTER_MAGIC);
+        archive.extend_from_slice(&48u32.to_le_bytes());
+        archive.extend_from_slice(&[0u8; 8]);
+
+        let mut reader = ZlgReader::new(Cursor::new(archive)).unwrap();
+        let err = reader.next_raw_chunk().unwrap_err();
+        assert!(err.to_string().contains("failed to fill whole buffer"));
+    }
+
     #[test]
     fn reader_rejects_excessive_summary_length_before_allocating() {
         let mut archive = build_archive_bytes(b"alpha\n", SearchSummaryMode::MeshBigram);
@@ -923,6 +1063,19 @@ mod tests {
         assert_eq!(decoded.data, data);
         assert!(reader.next_raw_chunk().unwrap().is_none());
     }
+
+    fn global_header_bytes() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(GLOBAL_MAGIC);
+        out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        out.extend_from_slice(&GLOBAL_HEADER_LEN.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&20u32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&[0u8; 8]);
+        out
+    }
+
     fn build_archive_bytes(data: &[u8], summary_mode: SearchSummaryMode) -> Vec<u8> {
         let chunk = PlainChunk {
             index: 0,

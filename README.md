@@ -138,11 +138,13 @@ This validates the Rust build, smoke tests, correctness checks, all chunk polici
 
 ## Cleanup and hardening status
 
-The final stack is now locked. Current cleanup work focuses on removing
-benchmark-only code paths, keeping the normal CLI surface small, and hardening
-archive parsing against malformed input. The reader should fail cleanly for bad
-magic, unsupported versions, excessive length fields, malformed summaries,
-truncated compressed payloads, and CRC mismatches.
+The final stack is now locked. Cleanup work has removed benchmark-only code
+paths from the normal CLI surface and expanded hardening coverage. The reader
+should fail cleanly for bad magic, unsupported versions, malformed chunk headers,
+excessive length fields, malformed summaries, truncated summaries, truncated
+compressed payloads, malformed directories, malformed footers, and CRC
+mismatches. Regex construction should fail cleanly for invalid Rust regex and
+PCRE2 patterns.
 
 Future usability work is intentionally deferred until cleanup and hardening are
 validated. Deferred topics include globbing/many-file workflows, conversion from

@@ -1,0 +1,22 @@
+Phase 2 CLI validation fix pass - 2026-05-17 (UTC)
+
+Commands run:
+1) cargo fmt --check -> FAIL (format drift in src/cli.rs, src/format.rs)
+2) cargo fmt -> PASS
+3) cargo fmt --check -> PASS
+4) cargo check -> FAIL (E0382 partial move in decode_streaming_lines)
+5) cargo check -> PASS
+6) cargo test -> PASS
+7) cargo clippy --all-targets --all-features -- -D warnings -> FAIL (dead_code: CompressionMode::as_str)
+8) cargo clippy --all-targets --all-features -- -D warnings -> PASS
+9) cargo build --release -> PASS
+10) scripts/phase0h_smoke.sh -> initial FAIL (used -oP), then PASS after script update
+11) scripts/phase0h_correctness_check.sh -> initial FAIL (used -oP), then PASS after script update
+12) scripts/phase0i_policy_matrix_check.sh -> initial FAIL (used -oP), then PASS after script update
+13) scripts/phase0m_selector_smoke.sh -> PASS
+14) scripts/phase0i_artifact_hygiene_check.sh -> PASS
+15) scripts/phase2_cli_smoke.sh -> PASS
+
+Notes:
+- Updated scripts to use -p/--pcre2 compatible invocation instead of -P.
+- Kept fixes narrow and validation-driven.

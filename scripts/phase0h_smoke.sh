@@ -23,7 +23,7 @@ only_out="$(cargo run --quiet -- grep -o 'key="[^"]+"' "$zlg_file")"
 line_out="$(cargo run --quiet -- grep -n 'failed password' "$zlg_file")"
 [[ "$line_out" == '3:failed password' ]]
 
-fancy_out="$(cargo run --quiet -- grep -oP '(?<=key=")[^"]+' "$zlg_file")"
+fancy_out="$(cargo run --quiet -- grep -o -p '(?<=key=")[^"]+' "$zlg_file")"
 [[ "$fancy_out" == 'abc' ]]
 
 fixed_out="$(cargo run --quiet -- grep -f 'alpha' "$zlg_file")"

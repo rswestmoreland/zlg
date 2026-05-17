@@ -58,7 +58,7 @@ for policy in "${policies[@]}"; do
     for pattern in "${fixed_patterns[@]}"; do
         expected="$tmp_dir/${policy}.$(echo "$pattern" | tr -c 'A-Za-z0-9' '_').fixed.expected"
         actual="$tmp_dir/${policy}.$(echo "$pattern" | tr -c 'A-Za-z0-9' '_').fixed.actual"
-        grep -f "$pattern" "$input" > "$expected" || true
+        grep -F "$pattern" "$input" > "$expected" || true
         "$zlg" grep -f "$pattern" "$zlg_file" > "$actual" || true
         diff -u "$expected" "$actual"
     done
@@ -66,7 +66,7 @@ for policy in "${policies[@]}"; do
     fancy_expected="$tmp_dir/fancy.${policy}.expected"
     fancy_actual="$tmp_dir/fancy.${policy}.actual"
     grep -oP '(?<=key=")[^"]+' "$input" > "$fancy_expected" || true
-    "$zlg" grep -oP '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual" || true
+    "$zlg" grep -o -p '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual" || true
     diff -u "$fancy_expected" "$fancy_actual"
 
     echo "phase0i policy matrix ok: $policy"

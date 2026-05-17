@@ -49,15 +49,6 @@ impl CompressionMode {
             Self::Best => 8,
         }
     }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Fast => "fast",
-            Self::Standard => "standard",
-            Self::Best => "best",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -152,10 +143,11 @@ impl RawChunk {
     where
         F: FnMut(u64, &[u8]) -> Result<bool>,
     {
-        let header = self.header;
         if self.is_stored() {
+            let header = self.header;
             return stream_plain_lines(header, &self.compressed, on_line);
         }
+        let header = self.header;
         let mut decoder = zstd::stream::Decoder::new(Cursor::new(self.compressed))
             .context("failed to create zstd streaming decoder")?;
         let mut buffer = [0u8; 64 * 1024];
@@ -241,7 +233,6 @@ impl RawChunk {
         })
     }
 }
-
 
 fn stream_plain_lines<F>(
     header: ChunkHeader,
@@ -1159,8 +1150,14 @@ mod tests {
 
         let mut out = Vec::new();
         {
-            let mut writer =
-                ZlgWriter::new_with_profile(&mut out, 17, CompressionMode::Fast, summary_mode, build_profile).unwrap();
+            let mut writer = ZlgWriter::new_with_profile(
+                &mut out,
+                17,
+                CompressionMode::Fast,
+                summary_mode,
+                build_profile,
+            )
+            .unwrap();
             writer.write_chunk(&chunk).unwrap();
             writer.finish().unwrap();
         }

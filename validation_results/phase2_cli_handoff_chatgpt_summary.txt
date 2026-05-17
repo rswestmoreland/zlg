@@ -1,0 +1,34 @@
+Phase 2 CLI handoff implementation summary
+
+Scope completed in ChatGPT sandbox:
+- Replaced normal public compression terminology with compression mode.
+- Added CLI compression modes: none, fast, standard, best.
+- Removed normal public --level and --preset from compress.
+- Added stored-payload chunk support for mode none using an internal chunk flag.
+- Kept mesh-bigram ZBM1 v2 and combined-bitset-seen builder unchanged.
+- Kept fixed-lines8192-cap8m as the hidden default chunk policy.
+- Changed grep public flags to lowercase -f/--fixed and -p/--pcre2.
+- Removed --max-count from grep and retained --head as the stop option.
+- Made grep use streaming decode by default.
+- Added version, head, tail, test, info, and stats commands.
+- Added scripts/phase2_cli_smoke.sh for Phase 2 CLI coverage.
+- Updated README and Phase 2 checklist status notes.
+- Updated existing validation scripts that invoked zlg grep with old uppercase flags.
+
+Known limitations:
+- Cargo/rustfmt/rustc were not installed in the ChatGPT sandbox, so Rust validation was not executed here.
+- tail/info/stats use the existing streaming reader path in this handoff. A seekable directory/footer reader remains a follow-up for efficient large-file tail/stat behavior before any format freeze.
+- top and convert remain deferred.
+
+Required external validation:
+- cargo fmt --check
+- cargo check
+- cargo test
+- cargo clippy --all-targets --all-features -- -D warnings
+- cargo build --release
+- scripts/phase0h_smoke.sh
+- scripts/phase0h_correctness_check.sh
+- scripts/phase0i_policy_matrix_check.sh
+- scripts/phase0m_selector_smoke.sh
+- scripts/phase0i_artifact_hygiene_check.sh
+- scripts/phase2_cli_smoke.sh

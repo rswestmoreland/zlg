@@ -1,11 +1,12 @@
 use crate::chunk::{ChunkPolicy, Chunker};
 use crate::format::{
-    BuildProfile, DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader, ZlgWriter,
+    BuildProfile, CompressionMode, DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader, ZlgWriter,
 };
 use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -25,6 +26,12 @@ pub enum Commands {
     Decompress(CatArgs),
     Cat(CatArgs),
     Grep(GrepArgs),
+    Head(HeadTailArgs),
+    Tail(HeadTailArgs),
+    Test(TestArgs),
+    Info(InfoStatsArgs),
+    Stats(InfoStatsArgs),
+    Version(VersionArgs),
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -164,18 +171,20 @@ impl From<BuildProfileArg> for BuildProfile {
 }
 
 #[derive(Clone, Debug, ValueEnum)]
-pub enum CompressionPresetArg {
+pub enum CompressionModeArg {
+    None,
     Fast,
     Standard,
     Best,
 }
 
-impl CompressionPresetArg {
-    fn level(&self) -> i32 {
-        match self {
-            CompressionPresetArg::Fast => 3,
-            CompressionPresetArg::Standard => 6,
-            CompressionPresetArg::Best => 8,
+impl From<CompressionModeArg> for CompressionMode {
+    fn from(value: CompressionModeArg) -> Self {
+        match value {
+            CompressionModeArg::None => CompressionMode::None,
+            CompressionModeArg::Fast => CompressionMode::Fast,
+            CompressionModeArg::Standard => CompressionMode::Standard,
+            CompressionModeArg::Best => CompressionMode::Best,
         }
     }
 }
@@ -187,11 +196,8 @@ pub struct CompressArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    #[arg(short = 'l', long)]
-    pub level: Option<i32>,
-
-    #[arg(long, value_enum)]
-    pub preset: Option<CompressionPresetArg>,
+    #[arg(long, value_enum, default_value_t = CompressionModeArg::Standard)]
+    pub mode: CompressionModeArg,
 
     #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192Cap8m, hide = true)]
     pub chunk_policy: ChunkPolicyArg,
@@ -215,16 +221,43 @@ pub struct CatArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct HeadTailArgs {
+    pub input: Option<PathBuf>,
+
+    #[arg(short = 'n', long, default_value_t = 10)]
+    pub lines: usize,
+}
+
+#[derive(Debug, Args)]
+pub struct TestArgs {
+    pub input: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct InfoStatsArgs {
+    pub input: Option<PathBuf>,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct VersionArgs {
+    #[arg(long)]
+    pub long: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct GrepArgs {
     pub pattern: String,
 
     pub input: Vec<PathBuf>,
 
-    #[arg(short = 'F', long)]
-    pub fixed_strings: bool,
+    #[arg(short = 'f', long)]
+    pub fixed: bool,
 
-    #[arg(short = 'P', long)]
-    pub perl_regexp: bool,
+    #[arg(short = 'p', long)]
+    pub pcre2: bool,
 
     #[arg(short = 'o', long)]
     pub only_matching: bool,
@@ -247,33 +280,20 @@ pub struct GrepArgs {
     #[arg(long)]
     pub no_filename: bool,
 
-    #[arg(short = 'H', long)]
+    #[arg(long)]
     pub with_filename: bool,
 
     #[arg(long)]
     pub stats_json: Option<PathBuf>,
 
-    #[arg(short = 'm', long)]
-    pub max_count: Option<usize>,
-
     #[arg(long)]
     pub head: Option<usize>,
-
-    #[arg(long)]
-    pub stream_decode: bool,
 }
 
 pub fn run_compress(args: CompressArgs) -> Result<()> {
     let input = open_input(args.input.as_ref())?;
     let output = open_output(args.output.as_ref())?;
-    if args.level.is_some() && args.preset.is_some() {
-        return Err(anyhow!("cannot combine --level and --preset"));
-    }
-    let level = args.level.unwrap_or_else(|| {
-        args.preset
-            .unwrap_or(CompressionPresetArg::Standard)
-            .level()
-    });
+    let mode: CompressionMode = args.mode.into();
     let policy: ChunkPolicy = args.chunk_policy.into();
     let summary_mode: SearchSummaryMode = args.summary_mode.into();
 
@@ -282,7 +302,7 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
 
     let build_profile: BuildProfile = args.build_profile.into();
     let mut zlg_writer =
-        ZlgWriter::new_with_profile(writer, policy.id(), level, summary_mode, build_profile)?;
+        ZlgWriter::new_with_profile(writer, policy.id(), mode, summary_mode, build_profile)?;
     let mut chunker = Chunker::new(policy);
 
     while let Some(chunk) = chunker.next_chunk(&mut reader)? {
@@ -376,21 +396,21 @@ impl GrepStats {
 }
 
 pub fn run_grep(args: GrepArgs) -> Result<()> {
-    if args.fixed_strings && args.perl_regexp {
-        return Err(anyhow!("cannot combine -F and -P"));
+    if args.fixed && args.pcre2 {
+        return Err(anyhow!("cannot combine -f and -p"));
     }
 
     let options = GrepOptions {
-        fixed_strings: args.fixed_strings,
-        perl_regexp: args.perl_regexp,
+        fixed_strings: args.fixed,
+        perl_regexp: args.pcre2,
         only_matching: args.only_matching,
         line_number: args.line_number,
         ignore_case: args.ignore_case,
         count: args.count,
         files_with_matches: args.files_with_matches,
         invert_match: args.invert_match,
-        max_count: merge_match_limit(args.max_count, args.head)?,
-        stream_decode: args.stream_decode,
+        max_count: args.head,
+        stream_decode: true,
     };
 
     let matcher = Matcher::new(&args.pattern, options.clone())?;
@@ -445,9 +465,10 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
     grep_exit(total_matches)
 }
 
+#[cfg(test)]
 fn merge_match_limit(max_count: Option<usize>, head: Option<usize>) -> Result<Option<usize>> {
     match (max_count, head) {
-        (Some(_), Some(_)) => Err(anyhow!("cannot combine --max-count and --head")),
+        (Some(_), Some(_)) => Err(anyhow!("cannot combine duplicate match limits")),
         (Some(value), None) | (None, Some(value)) => Ok(Some(value)),
         (None, None) => Ok(None),
     }
@@ -693,6 +714,159 @@ fn grep_decoded_chunk(
     Ok((matches, counters))
 }
 
+pub fn run_head(args: HeadTailArgs) -> Result<()> {
+    let input = open_input(args.input.as_ref())?;
+    let mut reader = ZlgReader::new(BufReader::new(input))?;
+    let mut writer = BufWriter::new(io::stdout().lock());
+    let mut remaining = args.lines;
+
+    while remaining > 0 {
+        let Some(raw_chunk) = reader.next_raw_chunk()? else {
+            break;
+        };
+        let decoded = raw_chunk.decode()?;
+        for line in split_lines_preserve(&decoded.data) {
+            if remaining == 0 {
+                break;
+            }
+            writer.write_all(line)?;
+            remaining -= 1;
+        }
+    }
+
+    writer.flush()?;
+    Ok(())
+}
+
+pub fn run_tail(args: HeadTailArgs) -> Result<()> {
+    let input = open_input(args.input.as_ref())?;
+    let mut reader = ZlgReader::new(BufReader::new(input))?;
+    let mut lines: VecDeque<Vec<u8>> = VecDeque::new();
+
+    while let Some(raw_chunk) = reader.next_raw_chunk()? {
+        let decoded = raw_chunk.decode()?;
+        for line in split_lines_preserve(&decoded.data) {
+            if args.lines == 0 {
+                continue;
+            }
+            if lines.len() == args.lines {
+                lines.pop_front();
+            }
+            lines.push_back(line.to_vec());
+        }
+    }
+
+    let mut writer = BufWriter::new(io::stdout().lock());
+    for line in lines {
+        writer.write_all(&line)?;
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+pub fn run_test(args: TestArgs) -> Result<()> {
+    let input = open_input(args.input.as_ref())?;
+    let mut reader = ZlgReader::new(BufReader::new(input))?;
+    let mut chunks = 0u64;
+    let mut lines = 0u64;
+    let mut bytes = 0u64;
+
+    while let Some(raw_chunk) = reader.next_raw_chunk()? {
+        let decoded = raw_chunk.decode()?;
+        chunks += 1;
+        lines += decoded.header.line_count;
+        bytes += decoded.data.len() as u64;
+    }
+
+    eprintln!("ok chunks={chunks} lines={lines} bytes={bytes}");
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+struct ArchiveStats {
+    chunks: u64,
+    lines: u64,
+    uncompressed_bytes: u64,
+    payload_bytes: u64,
+    summary_bytes: u64,
+}
+
+impl ArchiveStats {
+    fn read(args: &InfoStatsArgs) -> Result<Self> {
+        let input = open_input(args.input.as_ref())?;
+        let mut reader = ZlgReader::new(BufReader::new(input))?;
+        let mut stats = Self::default();
+
+        while let Some(raw_chunk) = reader.next_raw_chunk()? {
+            stats.chunks += 1;
+            stats.lines += raw_chunk.header.line_count;
+            stats.uncompressed_bytes += raw_chunk.header.uncompressed_len;
+            stats.payload_bytes += raw_chunk.header.compressed_len;
+            stats.summary_bytes += raw_chunk.header.summary_len as u64;
+            let _ = raw_chunk.decode()?;
+        }
+
+        Ok(stats)
+    }
+
+    fn total_component_bytes(&self) -> u64 {
+        self.payload_bytes + self.summary_bytes
+    }
+}
+
+pub fn run_info(args: InfoStatsArgs) -> Result<()> {
+    let stats = ArchiveStats::read(&args)?;
+    if args.json {
+        println!(
+            "{{\n  \"format\": \"zlg\",\n  \"chunks\": {},\n  \"lines\": {},\n  \"uncompressed_bytes\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {},\n  \"known_component_bytes\": {}\n}}",
+            stats.chunks,
+            stats.lines,
+            stats.uncompressed_bytes,
+            stats.payload_bytes,
+            stats.summary_bytes,
+            stats.total_component_bytes()
+        );
+    } else {
+        println!("format: zlg");
+        println!("chunks: {}", stats.chunks);
+        println!("lines: {}", stats.lines);
+        println!("uncompressed-bytes: {}", stats.uncompressed_bytes);
+        println!("payload-bytes: {}", stats.payload_bytes);
+        println!("summary-bytes: {}", stats.summary_bytes);
+        println!("known-component-bytes: {}", stats.total_component_bytes());
+    }
+    Ok(())
+}
+
+pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
+    let stats = ArchiveStats::read(&args)?;
+    if args.json {
+        println!(
+            "{{\n  \"lines\": {},\n  \"bytes\": {},\n  \"chunks\": {},\n  \"payload_bytes\": {},\n  \"summary_bytes\": {}\n}}",
+            stats.lines,
+            stats.uncompressed_bytes,
+            stats.chunks,
+            stats.payload_bytes,
+            stats.summary_bytes
+        );
+    } else {
+        println!("{} {}", stats.lines, stats.uncompressed_bytes);
+    }
+    Ok(())
+}
+
+pub fn run_version(args: VersionArgs) -> Result<()> {
+    if args.long {
+        println!("zlg {}", env!("CARGO_PKG_VERSION"));
+        println!("author: Richard S. Westmoreland <dev@rswestmore.land>");
+        println!("license: MIT OR Apache-2.0");
+        println!("compression modes: none, fast, standard, best");
+    } else {
+        println!("zlg {}", env!("CARGO_PKG_VERSION"));
+    }
+    Ok(())
+}
+
 fn write_prefix(
     writer: &mut dyn Write,
     path: Option<&PathBuf>,
@@ -756,10 +930,11 @@ mod tests {
     use clap::CommandFactory;
 
     #[test]
-    fn compression_preset_levels_are_locked() {
-        assert_eq!(CompressionPresetArg::Fast.level(), 3);
-        assert_eq!(CompressionPresetArg::Standard.level(), 6);
-        assert_eq!(CompressionPresetArg::Best.level(), 8);
+    fn compression_modes_are_locked() {
+        assert_eq!(CompressionMode::Fast.level(), Some(3));
+        assert_eq!(CompressionMode::Standard.level(), Some(6));
+        assert_eq!(CompressionMode::Best.level(), Some(8));
+        assert_eq!(CompressionMode::None.level(), None);
     }
 
     #[test]
@@ -775,7 +950,9 @@ mod tests {
             .find_subcommand_mut("compress")
             .expect("compress subcommand exists");
         let help = compress.render_long_help().to_string();
-        assert!(help.contains("--preset"));
+        assert!(help.contains("--mode"));
+        assert!(!help.contains("--level"));
+        assert!(!help.contains("--preset"));
         assert!(!help.contains("--chunk-policy"));
         assert!(!help.contains("--summary-mode"));
         assert!(!help.contains("--build-profile"));

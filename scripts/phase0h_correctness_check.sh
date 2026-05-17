@@ -40,7 +40,7 @@ compare \
 compare \
     fixed_string \
     "grep -F 'alpha' '$input'" \
-    "cargo run --quiet -- grep -F 'alpha' '$zlg_file'"
+    "cargo run --quiet -- grep -f 'alpha' '$zlg_file'"
 
 compare \
     only_matching \

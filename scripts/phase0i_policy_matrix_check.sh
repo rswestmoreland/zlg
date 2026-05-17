@@ -58,8 +58,8 @@ for policy in "${policies[@]}"; do
     for pattern in "${fixed_patterns[@]}"; do
         expected="$tmp_dir/${policy}.$(echo "$pattern" | tr -c 'A-Za-z0-9' '_').fixed.expected"
         actual="$tmp_dir/${policy}.$(echo "$pattern" | tr -c 'A-Za-z0-9' '_').fixed.actual"
-        grep -F "$pattern" "$input" > "$expected" || true
-        "$zlg" grep -F "$pattern" "$zlg_file" > "$actual" || true
+        grep -f "$pattern" "$input" > "$expected" || true
+        "$zlg" grep -f "$pattern" "$zlg_file" > "$actual" || true
         diff -u "$expected" "$actual"
     done
 

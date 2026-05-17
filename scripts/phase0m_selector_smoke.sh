@@ -48,7 +48,7 @@ assert data['selector_kind'] == 'literal_all', data
 assert data['selector_count'] >= 1, data
 PY
 
-cargo run --quiet -- grep --stats-json "$stats" -P '(?<=key=")[^"]+' "$zlg_file" >/dev/null
+cargo run --quiet -- grep --stats-json "$stats" -p '(?<=key=")[^"]+' "$zlg_file" >/dev/null
 python3 - "$stats" <<'PY'
 import json
 import sys

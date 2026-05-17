@@ -26,7 +26,7 @@ line_out="$(cargo run --quiet -- grep -n 'failed password' "$zlg_file")"
 fancy_out="$(cargo run --quiet -- grep -oP '(?<=key=")[^"]+' "$zlg_file")"
 [[ "$fancy_out" == 'abc' ]]
 
-fixed_out="$(cargo run --quiet -- grep -F 'alpha' "$zlg_file")"
+fixed_out="$(cargo run --quiet -- grep -f 'alpha' "$zlg_file")"
 [[ "$fixed_out" == 'alpha' ]]
 
 count_out="$(cargo run --quiet -- grep -c 'warning' "$zlg_file")"

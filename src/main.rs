@@ -15,5 +15,11 @@ fn main() -> Result<()> {
         Commands::Decompress(args) => cli::run_cat(args),
         Commands::Cat(args) => cli::run_cat(args),
         Commands::Grep(args) => cli::run_grep(args),
+        Commands::Head(args) => cli::run_head(args),
+        Commands::Tail(args) => cli::run_tail(args),
+        Commands::Test(args) => cli::run_test(args),
+        Commands::Info(args) => cli::run_info(args),
+        Commands::Stats(args) => cli::run_stats(args),
+        Commands::Version(args) => cli::run_version(args),
     }
 }

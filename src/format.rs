@@ -17,10 +17,48 @@ const GLOBAL_HEADER_LEN: u16 = 32;
 const CHUNK_HEADER_LEN: u16 = 64;
 const DIRECTORY_ENTRY_LEN: u32 = 64;
 const FORMAT_VERSION: u16 = 1;
+const CHUNK_FLAG_STORED: u16 = 0x8000;
 // Reader allocation guards for malformed archives. These are safety caps, not
 // format guarantees; normal final-stack chunks are far below these limits.
 const MAX_SUMMARY_LEN: u64 = 64 * 1024 * 1024;
 const MAX_COMPRESSED_CHUNK_LEN: u64 = 1024 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompressionMode {
+    None,
+    Fast,
+    Standard,
+    Best,
+}
+
+impl CompressionMode {
+    pub fn level(self) -> Option<i32> {
+        match self {
+            Self::None => None,
+            Self::Fast => Some(3),
+            Self::Standard => Some(6),
+            Self::Best => Some(8),
+        }
+    }
+
+    pub fn id(self) -> u32 {
+        match self {
+            Self::None => 0,
+            Self::Fast => 3,
+            Self::Standard => 6,
+            Self::Best => 8,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Fast => "fast",
+            Self::Standard => "standard",
+            Self::Best => "best",
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ChunkHeader {
@@ -73,9 +111,17 @@ pub struct StreamDecodeOutcome {
 }
 
 impl RawChunk {
+    fn is_stored(&self) -> bool {
+        self.header.flags & CHUNK_FLAG_STORED != 0
+    }
+
     pub fn decode(self) -> Result<DecodedChunk> {
-        let data = zstd::stream::decode_all(Cursor::new(&self.compressed))
-            .context("failed to decode zstd chunk")?;
+        let data = if self.is_stored() {
+            self.compressed
+        } else {
+            zstd::stream::decode_all(Cursor::new(&self.compressed))
+                .context("failed to decode zstd chunk")?
+        };
 
         if data.len() as u64 != self.header.uncompressed_len {
             return Err(anyhow!(
@@ -107,6 +153,9 @@ impl RawChunk {
         F: FnMut(u64, &[u8]) -> Result<bool>,
     {
         let header = self.header;
+        if self.is_stored() {
+            return stream_plain_lines(header, &self.compressed, on_line);
+        }
         let mut decoder = zstd::stream::Decoder::new(Cursor::new(self.compressed))
             .context("failed to create zstd streaming decoder")?;
         let mut buffer = [0u8; 64 * 1024];
@@ -191,6 +240,53 @@ impl RawChunk {
             stopped_early: false,
         })
     }
+}
+
+
+fn stream_plain_lines<F>(
+    header: ChunkHeader,
+    data: &[u8],
+    mut on_line: F,
+) -> Result<StreamDecodeOutcome>
+where
+    F: FnMut(u64, &[u8]) -> Result<bool>,
+{
+    let mut line_number = header.first_line_number;
+    for line in data.split_inclusive(|byte| *byte == b'\n') {
+        if !on_line(line_number, line)? {
+            return Ok(StreamDecodeOutcome {
+                decoded_bytes: data.len() as u64,
+                crc_checked: false,
+                stopped_early: true,
+            });
+        }
+        line_number += 1;
+    }
+
+    if data.len() as u64 != header.uncompressed_len {
+        return Err(anyhow!(
+            "chunk {} decoded length mismatch: expected {}, got {}",
+            header.chunk_index,
+            header.uncompressed_len,
+            data.len()
+        ));
+    }
+
+    let crc = crc32(data);
+    if crc != header.crc32 {
+        return Err(anyhow!(
+            "chunk {} crc mismatch: expected {:#010x}, got {:#010x}",
+            header.chunk_index,
+            header.crc32,
+            crc
+        ));
+    }
+
+    Ok(StreamDecodeOutcome {
+        decoded_bytes: data.len() as u64,
+        crc_checked: true,
+        stopped_early: false,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -285,7 +381,7 @@ impl BuildStats {
 
 pub struct ZlgWriter<W: Write> {
     writer: CountingWriter<W>,
-    level: i32,
+    compression_mode: CompressionMode,
     summary_mode: SearchSummaryMode,
     build_profile: BuildProfile,
     build_stats: BuildStats,
@@ -302,7 +398,7 @@ impl<W: Write> ZlgWriter<W> {
     pub fn new_with_profile(
         writer: W,
         chunk_policy_id: u32,
-        level: i32,
+        compression_mode: CompressionMode,
         summary_mode: SearchSummaryMode,
         build_profile: BuildProfile,
     ) -> Result<Self> {
@@ -313,21 +409,25 @@ impl<W: Write> ZlgWriter<W> {
         write_u16(&mut writer, GLOBAL_HEADER_LEN)?;
         write_u32(&mut writer, 0)?;
         write_u32(&mut writer, chunk_policy_id)?;
-        write_u32(&mut writer, 0)?;
+        write_u32(&mut writer, compression_mode.id())?;
         writer.write_all(&[0u8; 8])?;
 
-        let zstd_compressor = if build_profile.uses_zstd_bulk() {
-            Some(
-                zstd::bulk::Compressor::new(level)
-                    .context("failed to create reusable zstd bulk compressor")?,
-            )
+        let zstd_compressor = if let Some(level) = compression_mode.level() {
+            if build_profile.uses_zstd_bulk() {
+                Some(
+                    zstd::bulk::Compressor::new(level)
+                        .context("failed to create reusable zstd bulk compressor")?,
+                )
+            } else {
+                None
+            }
         } else {
             None
         };
 
         Ok(Self {
             writer,
-            level,
+            compression_mode,
             summary_mode,
             build_profile,
             build_stats: BuildStats::default(),
@@ -382,18 +482,28 @@ impl<W: Write> ZlgWriter<W> {
         };
 
         let zstd_start = Instant::now();
-        let compressed = if let Some(compressor) = self.zstd_compressor.as_mut() {
+        let compressed = if self.compression_mode == CompressionMode::None {
+            chunk.data.clone()
+        } else if let Some(compressor) = self.zstd_compressor.as_mut() {
             compressor
                 .compress(&chunk.data)
                 .context("failed to encode zstd chunk with reusable bulk compressor")?
         } else {
-            zstd::stream::encode_all(Cursor::new(&chunk.data), self.level)
+            let level = self
+                .compression_mode
+                .level()
+                .ok_or_else(|| anyhow!("missing zstd level for compression mode"))?;
+            zstd::stream::encode_all(Cursor::new(&chunk.data), level)
                 .context("failed to encode zstd chunk")?
         };
         let zstd_ns = zstd_start.elapsed().as_nanos();
 
         let header = ChunkHeader {
-            flags: chunk.flags,
+            flags: if self.compression_mode == CompressionMode::None {
+                chunk.flags | CHUNK_FLAG_STORED
+            } else {
+                chunk.flags
+            },
             chunk_index: chunk.index,
             first_line_number: chunk.first_line_number,
             line_count: chunk.line_count,
@@ -577,7 +687,7 @@ impl<R: Read> ZlgReader<R> {
 
         let _flags = read_u32(&mut reader)?;
         let _chunk_policy_id = read_u32(&mut reader)?;
-        let _reserved0 = read_u32(&mut reader)?;
+        let _compression_mode_id = read_u32(&mut reader)?;
 
         let mut reserved = [0u8; 8];
         reader.read_exact(&mut reserved)?;
@@ -1050,7 +1160,7 @@ mod tests {
         let mut out = Vec::new();
         {
             let mut writer =
-                ZlgWriter::new_with_profile(&mut out, 17, 1, summary_mode, build_profile).unwrap();
+                ZlgWriter::new_with_profile(&mut out, 17, CompressionMode::Fast, summary_mode, build_profile).unwrap();
             writer.write_chunk(&chunk).unwrap();
             writer.finish().unwrap();
         }
@@ -1090,7 +1200,7 @@ mod tests {
             let mut writer = ZlgWriter::new_with_profile(
                 &mut out,
                 20,
-                6,
+                CompressionMode::Standard,
                 summary_mode,
                 BuildProfile::CombinedBitsetSeen,
             )

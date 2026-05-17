@@ -1,9 +1,10 @@
 [package]
 name = "zlg"
-version = "0.1.0-phase0"
+version = "0.1.0-phase2a"
 edition = "2021"
-license = "MIT"
-description = "Prototype searchable zstd-backed log compression CLI"
+license = "MIT OR Apache-2.0"
+authors = ["Richard S. Westmoreland <dev@rswestmore.land>"]
+description = "Searchable zstd-backed log compression CLI"
 repository = "https://example.invalid/zlg"
 
 [dependencies]

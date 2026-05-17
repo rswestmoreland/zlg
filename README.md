@@ -1,152 +1,139 @@
-# zlg Prototype
+# zlg
 
-`zlg` is a prototype single-binary Linux CLI utility and `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
+`zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-This checkpoint is intended for Codex/Rust validation and benchmark iteration. The selected production candidate stack is fixed-lines8192 with an 8 MiB byte cap + mesh-bigram ZBM1 v2 + zstd::bulk::Compressor + combined-bitset-seen + streaming grep.
+The selected production core is locked. The Phase 2 CLI pass has started: lowercase options, compression modes, head/tail, version, test, info, and stats are implemented in the current handoff. Top and convert remain design/deferred work.
 
-## Current scope
+## Current status
 
-Implemented as source files:
+This repository is still pre-1.0. The core compression/search stack has been validated and hardened, and the public CLI is being aligned with the Phase 2 design. The file format remains experimental and must not be frozen yet.
 
-- `zlg compress`
-- `zlg decompress`
-- `zlg cat`
-- `zlg grep`
-- provisional `ZLG1P0` container format
-- independent zstd-compressed chunks
-- inline per-chunk search summaries
-- footer directory prototype
-- fixed-string grep
-- default Rust regex grep
-- enhanced `-P` mode using PCRE2 bytes regex
-- line-number, only-matching, count, ignore-case, invert-match, and files-with-matches flags
-- finalized fixed-lines8192 chunking with an 8 MiB byte cap
-- finalized mesh-bigram summary builder path
-
-## Important status
-
-This is not a stable file format.
-
-The current file format is still experimental and must not be frozen yet. The current default compression path is fixed-lines8192 with an 8 MiB byte cap + mesh-bigram + combined-bitset-seen at the standard preset, zstd level 6.
-
-
-## Active production stack
-
-The selected strategy is:
+## Locked production core
 
 ```text
 fixed-lines8192 with 8 MiB byte cap
 + mesh-bigram ZBM1 v2
 + zstd::bulk::Compressor
 + combined-bitset-seen
++ current reserve behavior
 + streaming grep
++ summary-first skip
++ memchr line splitting
 + Rust regex default
-+ PCRE2 for -P
++ PCRE2 for pcre2 mode
 + literal prefiltering
 + positive-lookbehind fast path
-+ --head / --max-count early stop
++ head-style early stop
 ```
 
-`combined-bitset-seen` is the selected production builder. Earlier sort, hash, sparse, trie, paged, and lower-only builder experiments are not active production candidates and are hidden or removed from the normal CLI surface.
-
-Compression presets are:
+Compression modes are the user-facing compression choices:
 
 ```text
+none     = store payloads uncompressed inside .zlg chunks
 fast     = zstd level 3
 standard = zstd level 6
 best     = zstd level 8
 ```
 
-The standard/default preset is zstd level 6. Dropped external sort experiments no longer require `rdxsort` or `rdst` dependencies.
+The default compression mode is `standard`.
 
-## Success criteria
+## Locked design decisions for the next CLI phase
 
-The project should eventually prove that `zlg` can:
+- Use subcommands.
+- Use lowercase short options only.
+- Use lowercase long options only.
+- Do not carry uppercase feature flags such as `-P`.
+- Do not expose the full numeric compression-level range in the normal CLI.
+- Use `--mode`, not `--preset`.
+- Use `-p`, `--pcre2` for PCRE2 mode.
+- Include `head` and `tail` as first-class commands.
+- Store line-count and byte-count metadata so `tail` and `stats` can be efficient.
+- Put wc-style behavior under `stats`, not a separate `wc` command.
+- Keep sort/uniq design open, likely through top/extract/count/sort workflows first.
+- Keep conversion support lean; plain and `.zst` should be straightforward, `.gz` should be measured for binary-size impact before locking.
 
-1. Compress plaintext logs faster than gzip.
-2. Produce `.zlg` files smaller than gzip output.
-3. Search compressed logs faster than zgrep.
-4. Avoid temp files.
-5. Avoid memory exhaustion.
-6. Preserve normal Unix pipe behavior.
-7. Preserve grep-like correctness for line-oriented log search.
+## Planned command surface
 
-## Basic usage
-
-```bash
-zlg compress input.log -o input.log.zlg
-zlg cat input.log.zlg
-zlg decompress input.log.zlg -o input.log
-zlg grep 'error|failed|denied' input.log.zlg
-zlg grep -o 'key="[^"]+"' input.log.zlg
-zlg grep -P '(?<=key=")[^"]+' input.log.zlg
+```text
+zlg help
+zlg version
+zlg compress
+zlg decompress
+zlg cat
+zlg grep
+zlg head
+zlg tail
+zlg test
+zlg info
+zlg stats
+zlg top
+zlg convert
 ```
 
-Pipe examples:
+`sort` and `uniq` remain design topics. They should not become broad clones of Unix `sort` and `uniq` without a clear zlg-specific purpose.
 
-```bash
-cat input.log | zlg compress > input.log.zlg
-cat input.log.zlg | zlg cat
-cat input.log.zlg | zlg grep 'error'
-```
+## Current implemented commands
 
-## Suggested validation in Codex
+Implemented in the current Phase 2 CLI handoff:
 
-```bash
+- `zlg help` through the normal clap help command path
+- `zlg version`
+- `zlg compress` with `--mode <none|fast|standard|best>`
+- `zlg decompress`
+- `zlg cat`
+- `zlg grep` with lowercase `-f`, `-p`, and `--head`
+- `zlg head`
+- `zlg tail`
+- `zlg test`
+- `zlg info`
+- `zlg stats`
+
+Deferred command design topics:
+
+- `zlg top`
+- `zlg convert`
+- sort/uniq-like workflows
+
+## Author
+
+Richard S. Westmoreland
+
+dev@rswestmore.land
+
+## License
+
+Dual licensed under MIT OR Apache-2.0.
+
+See:
+
+- `LICENSE`
+- `LICENSE-MIT`
+- `LICENSE-APACHE`
+
+## Validation baseline
+
+The last validated hardening checkpoint passed:
+
+```text
 cargo fmt --check
 cargo check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release
+phase0h smoke
+phase0h correctness
+phase0i policy matrix
+phase0m selector smoke
+phase0i artifact hygiene
+phase1o hardening coverage
 ```
 
-## Suggested smoke tests in Codex
+## Next session
 
-```bash
-printf 'alpha\nerror key="abc"\nfailed password\n' > /tmp/zlg-smoke.log
+Start the next session with review only. Treat this bundle as the authoritative baseline for CLI planning and implementation.
 
-cargo run -- compress /tmp/zlg-smoke.log -o /tmp/zlg-smoke.log.zlg
-cargo run -- cat /tmp/zlg-smoke.log.zlg
-cargo run -- grep 'error|failed' /tmp/zlg-smoke.log.zlg
-cargo run -- grep -o 'key="[^"]+"' /tmp/zlg-smoke.log.zlg
-cargo run -- grep -n 'failed password' /tmp/zlg-smoke.log.zlg
-cargo run -- grep -P '(?<=key=")[^"]+' /tmp/zlg-smoke.log.zlg
+Recommended starting document:
+
+```text
+docs/ZLG_NEXT_CHAT_PROMPT_PHASE2B.md
 ```
-
-## Phase 0h proof-prep helpers
-
-This checkpoint includes small proof-prep helpers:
-
-```bash
-scripts/phase0h_smoke.sh
-scripts/phase0h_correctness_check.sh
-python3 tools/phase0h_bench.py --quick
-```
-
-These scripts use temporary directories and should not commit generated `.zlg`, `.gz`, `target/`, or temporary files.
-
-
-## Phase 0i pre-bench readiness
-
-The checkpoint includes a one-command pre-bench readiness pass:
-
-```bash
-scripts/phase0i_prebench_once.sh
-```
-
-This validates the Rust build, smoke tests, correctness checks, all chunk policies, a repeatable pre-bench harness, and artifact hygiene before full benchmark work.
-
-## Cleanup and hardening status
-
-The final stack is now locked. Cleanup work has removed benchmark-only code
-paths from the normal CLI surface and expanded hardening coverage. The reader
-should fail cleanly for bad magic, unsupported versions, malformed chunk headers,
-excessive length fields, malformed summaries, truncated summaries, truncated
-compressed payloads, malformed directories, malformed footers, and CRC
-mismatches. Regex construction should fail cleanly for invalid Rust regex and
-PCRE2 patterns.
-
-Future usability work is intentionally deferred until cleanup and hardening are
-validated. Deferred topics include globbing/many-file workflows, conversion from
-other compressed formats, richer grep/cat/head/tail-style output modes,
-top-N/count/sort helpers, and bounded async or parallel pipelines.

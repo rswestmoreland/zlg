@@ -1,0 +1,28 @@
+Phase 2m validation date: 2026-05-17
+Repository: /workspace/zlg
+
+Helper availability:
+gzip: available
+bzip2: available
+xz: available
+zstd: missing
+
+Commands and outcomes:
+PASS: cargo fmt --check
+PASS: cargo check
+PASS: cargo test
+PASS: cargo clippy --all-targets --all-features -- -D warnings
+PASS: cargo build --release
+PASS: bash scripts/phase0h_smoke.sh
+PASS: bash scripts/phase0h_correctness_check.sh
+PASS: bash scripts/phase0i_policy_matrix_check.sh
+PASS: bash scripts/phase0m_selector_smoke.sh
+PASS: bash scripts/phase0i_artifact_hygiene_check.sh
+PASS: bash scripts/phase2_cli_smoke.sh
+PASS: bash scripts/phase2g_archive_hardening_once.sh
+PASS: bash scripts/phase2i_repeated_median_once.sh
+PASS: bash scripts/phase2m_convert_once.sh
+
+Notes:
+- cargo fmt --check initially failed and was remediated via cargo fmt.
+- No new Cargo dependencies added.

@@ -745,8 +745,8 @@ pub fn run_tail(args: HeadTailArgs) -> Result<()> {
 }
 
 fn run_tail_seekable(path: &PathBuf, lines_wanted: usize) -> Result<()> {
-    let mut file = File::open(path)
-        .with_context(|| format!("failed to open input {}", path.display()))?;
+    let mut file =
+        File::open(path).with_context(|| format!("failed to open input {}", path.display()))?;
     let metadata = read_archive_metadata(&mut file)
         .with_context(|| format!("failed to read zlg metadata from {}", path.display()))?;
 
@@ -948,7 +948,14 @@ pub fn run_info(args: InfoStatsArgs) -> Result<()> {
         }
         println!("compression-mode: {}", stats.compression_mode_name());
         println!("chunk-policy: {}", stats.chunk_policy_name());
-        println!("metadata: {}", if stats.used_metadata { "seekable" } else { "streamed" });
+        println!(
+            "metadata: {}",
+            if stats.used_metadata {
+                "seekable"
+            } else {
+                "streamed"
+            }
+        );
     }
     Ok(())
 }
@@ -980,7 +987,10 @@ pub fn run_version(args: VersionArgs) -> Result<()> {
         println!("author: Richard S. Westmoreland <dev@rswestmore.land>");
         println!("license: MIT OR Apache-2.0");
         println!("format-version: {}", zlg_format_version());
-        println!("default-compression-mode: {}", default_compression_mode_name());
+        println!(
+            "default-compression-mode: {}",
+            default_compression_mode_name()
+        );
         println!("default-chunk-policy: {}", default_chunk_policy_name());
         println!("default-summary-type: {}", default_summary_type_name());
         println!("default-build-profile: {}", default_build_profile_name());

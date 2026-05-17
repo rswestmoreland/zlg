@@ -269,9 +269,11 @@ pub fn run_compress(args: CompressArgs) -> Result<()> {
     if args.level.is_some() && args.preset.is_some() {
         return Err(anyhow!("cannot combine --level and --preset"));
     }
-    let level = args
-        .level
-        .unwrap_or_else(|| args.preset.unwrap_or(CompressionPresetArg::Standard).level());
+    let level = args.level.unwrap_or_else(|| {
+        args.preset
+            .unwrap_or(CompressionPresetArg::Standard)
+            .level()
+    });
     let policy: ChunkPolicy = args.chunk_policy.into();
     let summary_mode: SearchSummaryMode = args.summary_mode.into();
 

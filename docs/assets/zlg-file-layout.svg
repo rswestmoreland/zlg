@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="430" viewBox="0 0 980 430" role="img" aria-labelledby="title desc">
+  <title id="title">zlg file layout</title>
+  <desc id="desc">A zlg file contains a global header, repeated chunks with headers, search summaries and payloads, then a directory and footer.</desc>
+  <rect width="980" height="430" fill="#fbfbfb"/>
+  <text x="40" y="42" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#222">.zlg archive layout</text>
+  <text x="40" y="70" font-family="Arial, sans-serif" font-size="14" fill="#555">Independent searchable chunks plus a seekable directory and footer.</text>
+
+  <rect x="40" y="105" width="135" height="210" rx="14" fill="#eef4ff" stroke="#6b8fd6" stroke-width="2"/>
+  <text x="67" y="145" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#203864">Global header</text>
+  <text x="62" y="172" font-family="Arial, sans-serif" font-size="13" fill="#333">magic</text>
+  <text x="62" y="194" font-family="Arial, sans-serif" font-size="13" fill="#333">version</text>
+  <text x="62" y="216" font-family="Arial, sans-serif" font-size="13" fill="#333">flags</text>
+
+  <g transform="translate(210,95)">
+    <rect x="0" y="0" width="180" height="245" rx="14" fill="#f0fff4" stroke="#54a36a" stroke-width="2"/>
+    <text x="58" y="32" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#225d33">Chunk 0</text>
+    <rect x="22" y="55" width="136" height="46" rx="8" fill="#ffffff" stroke="#8bcf99"/>
+    <text x="48" y="83" font-family="Arial, sans-serif" font-size="13" fill="#222">chunk header</text>
+    <rect x="22" y="113" width="136" height="46" rx="8" fill="#ffffff" stroke="#8bcf99"/>
+    <text x="50" y="141" font-family="Arial, sans-serif" font-size="13" fill="#222">mesh summary</text>
+    <rect x="22" y="171" width="136" height="46" rx="8" fill="#ffffff" stroke="#8bcf99"/>
+    <text x="57" y="199" font-family="Arial, sans-serif" font-size="13" fill="#222">payload</text>
+  </g>
+
+  <g transform="translate(420,95)">
+    <rect x="0" y="0" width="180" height="245" rx="14" fill="#f0fff4" stroke="#54a36a" stroke-width="2"/>
+    <text x="58" y="32" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#225d33">Chunk 1</text>
+    <rect x="22" y="55" width="136" height="46" rx="8" fill="#ffffff" stroke="#8bcf99"/>
+    <text x="48" y="83" font-family="Arial, sans-serif" font-size="13" fill="#222">chunk header</text>
+    <rect x="22" y="113" width="136" height="46" rx="8" fill="#ffffff" stroke="#8bcf99"/>
+    <text x="50" y="141" font-family="Arial, sans-serif" font-size="13" fill="#222">mesh summary</text>
+    <rect x="22" y="171" width="136" height="46" rx="8" fill="#ffffff" stroke="#8bcf99"/>
+    <text x="57" y="199" font-family="Arial, sans-serif" font-size="13" fill="#222">payload</text>
+  </g>
+
+  <text x="640" y="220" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#777">...</text>
+
+  <rect x="705" y="105" width="110" height="210" rx="14" fill="#fff8e8" stroke="#d5a742" stroke-width="2"/>
+  <text x="728" y="145" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#6b4a00">Directory</text>
+  <text x="724" y="174" font-family="Arial, sans-serif" font-size="13" fill="#333">chunk offsets</text>
+  <text x="724" y="196" font-family="Arial, sans-serif" font-size="13" fill="#333">line counts</text>
+  <text x="724" y="218" font-family="Arial, sans-serif" font-size="13" fill="#333">byte counts</text>
+
+  <rect x="845" y="105" width="95" height="210" rx="14" fill="#fff0f0" stroke="#d66b6b" stroke-width="2"/>
+  <text x="870" y="145" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#7a2727">Footer</text>
+  <text x="862" y="174" font-family="Arial, sans-serif" font-size="13" fill="#333">totals</text>
+  <text x="862" y="196" font-family="Arial, sans-serif" font-size="13" fill="#333">directory</text>
+  <text x="862" y="218" font-family="Arial, sans-serif" font-size="13" fill="#333">location</text>
+
+  <path d="M175 210 L210 210" stroke="#999" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M390 210 L420 210" stroke="#999" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M600 210 L705 210" stroke="#999" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M815 210 L845 210" stroke="#999" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="40" y="370" font-family="Arial, sans-serif" font-size="14" fill="#333">Each chunk carries its own search summary and payload. Commands can skip, seek, or decode chunks independently.</text>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#999"/>
+    </marker>
+  </defs>
+</svg>

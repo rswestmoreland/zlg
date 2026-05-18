@@ -1,9 +1,9 @@
 use crate::chunk::{ChunkPolicy, Chunker};
 use crate::format::{
-    default_build_profile_name, default_chunk_policy_name, default_compression_mode_name,
-    default_summary_type_name, read_archive_metadata, read_raw_chunk_at, zlg_format_version,
-    ArchiveMetadata, BuildProfile, CompressionMode, DecodedChunk, RawChunk, StreamDecodeOutcome,
-    ZlgReader, ZlgWriter,
+    chunking_description_from_id, default_build_profile_name, default_chunking_description,
+    default_compression_mode_name, default_summary_type_name, read_archive_metadata,
+    read_raw_chunk_at, zlg_format_version, ArchiveMetadata, BuildProfile, CompressionMode,
+    DecodedChunk, RawChunk, StreamDecodeOutcome, ZlgReader, ZlgWriter,
 };
 use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 
@@ -17,7 +17,7 @@ use std::process::{Child, Command, Stdio};
 
 #[derive(Debug, Parser)]
 #[command(name = "zlg")]
-#[command(about = "Searchable zstd-backed log compression prototype")]
+#[command(about = "Search, inspect, and convert compressed log archives")]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -211,7 +211,6 @@ pub struct ConvertArgs {
 pub struct CompressArgs {
     pub input: Option<PathBuf>,
 
-    #[arg(short, long)]
     pub output: Option<PathBuf>,
 
     #[arg(short = 'm', long, value_enum, default_value_t = CompressionModeArg::Standard)]
@@ -301,8 +300,11 @@ pub struct GrepArgs {
     #[arg(short = 'a', long, default_value_t = 100_000)]
     pub cap: usize,
 
-    #[arg(short = 'r', long, default_value_t = 1_000)]
+    #[arg(short = 'b', long, default_value_t = 1_000)]
     pub truncate: usize,
+
+    #[arg(short = 'r', long)]
+    pub regex: bool,
 
     #[arg(short = 'j', long)]
     pub json: bool,
@@ -834,6 +836,9 @@ impl TopAggregator {
 pub fn run_grep(args: GrepArgs) -> Result<()> {
     if args.fixed && args.pcre2 {
         return Err(anyhow!("cannot combine -f and -p"));
+    }
+    if args.regex && (args.fixed || args.pcre2) {
+        return Err(anyhow!("cannot combine -r/--regex with -f/--fixed or -p/--pcre2"));
     }
     if args.top && !args.extract {
         return Err(anyhow!("--top requires -e/--extract"));
@@ -1567,9 +1572,9 @@ impl ArchiveStats {
             .unwrap_or("unknown")
     }
 
-    fn chunk_policy_name(&self) -> &'static str {
+    fn chunking_description(&self) -> &'static str {
         self.chunk_policy_id
-            .map(crate::format::chunk_policy_name_from_id)
+            .map(chunking_description_from_id)
             .unwrap_or("unknown")
     }
 }
@@ -1590,7 +1595,7 @@ pub fn run_info(args: InfoStatsArgs) -> Result<()> {
             stats.total_component_bytes(),
             json_u64_or_null(stats.file_bytes),
             stats.compression_mode_name(),
-            stats.chunk_policy_name(),
+            stats.chunking_description(),
             stats.used_metadata
         );
     } else {
@@ -1625,7 +1630,7 @@ pub fn run_stats(args: InfoStatsArgs) -> Result<()> {
             json_f64_or_null(stats.avg_lines_per_chunk()),
             json_f64_or_null(stats.avg_uncompressed_bytes_per_chunk()),
             stats.compression_mode_name(),
-            stats.chunk_policy_name(),
+            stats.chunking_description(),
             stats.used_metadata
         );
     } else {
@@ -1645,7 +1650,7 @@ fn print_info_report(stats: &ArchiveStats) {
         "Compression mode",
         stats.compression_mode_name().to_string(),
     );
-    print_stat_row("Chunk policy", stats.chunk_policy_name().to_string());
+    print_stat_row("Chunking", stats.chunking_description().to_string());
     print_stat_row(
         "Metadata source",
         if stats.used_metadata {
@@ -1735,7 +1740,7 @@ fn print_stats_report(stats: &ArchiveStats) {
         "Compression mode",
         stats.compression_mode_name().to_string(),
     );
-    print_stat_row("Chunk policy", stats.chunk_policy_name().to_string());
+    print_stat_row("Chunking", stats.chunking_description().to_string());
     print_stat_row("Format version", format_optional_u16(stats.format_version));
     print_stat_row(
         "Metadata source",
@@ -1864,7 +1869,7 @@ pub fn run_version(args: VersionArgs) -> Result<()> {
             "default-compression-mode: {}",
             default_compression_mode_name()
         );
-        println!("default-chunk-policy: {}", default_chunk_policy_name());
+        println!("default-chunking: {}", default_chunking_description());
         println!("default-summary-type: {}", default_summary_type_name());
         println!("default-build-profile: {}", default_build_profile_name());
         println!("compression modes: none, fast, standard, best");
@@ -2007,6 +2012,8 @@ mod tests {
         let help = grep.render_long_help().to_string();
         assert!(help.contains("-f"));
         assert!(help.contains("--fixed"));
+        assert!(help.contains("-r"));
+        assert!(help.contains("--regex"));
         assert!(help.contains("-p"));
         assert!(help.contains("--pcre2"));
         assert!(help.contains("-e"));
@@ -2017,6 +2024,7 @@ mod tests {
         assert!(help.contains("--paths"));
         assert!(help.contains("--limit"));
         assert!(help.contains("--cap"));
+        assert!(help.contains("-b"));
         assert!(help.contains("--truncate"));
         assert!(help.contains("--head"));
         assert!(help.contains("--strict"));
@@ -2065,7 +2073,7 @@ mod tests {
     fn version_long_defaults_are_available() {
         assert_eq!(zlg_format_version(), 1);
         assert_eq!(default_compression_mode_name(), "standard");
-        assert_eq!(default_chunk_policy_name(), "fixed-lines8192-cap8m");
+        assert_eq!(default_chunking_description(), "line-bounded chunks with byte cap");
         assert_eq!(default_summary_type_name(), "mesh-bigram ZBM1 v2");
         assert_eq!(default_build_profile_name(), "combined-bitset-seen");
     }

@@ -1,73 +1,51 @@
-# zlg Release Checklist
-
-This checklist is for a pre-1.0 Linux release candidate.
+# Release checklist
 
 ## Metadata
 
-- [ ] Confirm final repository URL in Cargo.toml.
-- [ ] Confirm version string.
-- [ ] Confirm author: Richard S. Westmoreland.
-- [ ] Confirm contact: dev@rswestmore.land.
-- [ ] Confirm license: MIT OR Apache-2.0.
-- [ ] Confirm README.md is current.
-- [ ] Confirm file format is still described as experimental.
+- [ ] `Cargo.toml` name is correct.
+- [ ] Version is correct.
+- [ ] Repository URL is correct.
+- [ ] License is `MIT OR Apache-2.0`.
+- [ ] Author/contact metadata is correct.
+- [ ] README is public-facing.
 
 ## Validation
 
-Run:
-
-```bash
-cargo fmt --check
-cargo check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo build --release
-bash scripts/phase0h_smoke.sh
-bash scripts/phase0h_correctness_check.sh
-bash scripts/phase0i_policy_matrix_check.sh
-bash scripts/phase0m_selector_smoke.sh
-bash scripts/phase0i_artifact_hygiene_check.sh
-bash scripts/phase2_cli_smoke.sh
-bash scripts/phase2g_archive_hardening_once.sh
-bash scripts/phase2i_repeated_median_once.sh
-bash scripts/phase2m_convert_once.sh
-bash scripts/phase3_release_readiness_once.sh
-```
-
-## Packaging dry run
-
-Run:
-
-```bash
-bash scripts/phase3_release_artifact_dry_run.sh
-```
-
-Confirm generated artifacts stay outside committed source or remain ignored.
+- [ ] `cargo fmt --check`
+- [ ] `cargo check`
+- [ ] `cargo test`
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
+- [ ] `cargo build --release`
+- [ ] smoke test commands pass
+- [ ] archive hardening checks pass
+- [ ] convert checks pass
+- [ ] release-readiness audit passes
 
 ## Documentation
 
-- [ ] README command examples are current.
-- [ ] docs/COMMAND_REFERENCE.md is current.
-- [ ] docs/INSTALL.md is current.
-- [ ] docs/man/zlg.1 is current.
-- [ ] docs/ROADMAP.md is current.
-- [ ] docs/SHELL_COMPLETIONS.md accurately reflects current status.
-- [ ] Historical Phase 0/1 docs are treated as traceability, not active guidance.
+- [ ] README explains what zlg is and how to use it.
+- [ ] Command reference is current.
+- [ ] Install notes are current.
+- [ ] Format overview is current.
+- [ ] Benchmark snapshot is current.
+- [ ] Man page draft is current.
+- [ ] No internal planning or handoff language appears in public docs.
 
-## CLI audit
+## Release artifact
 
-- [ ] No public `--preset`.
-- [ ] No public numeric `--level`.
-- [ ] No public `-P` or `-F`.
-- [ ] No public `--max-count`.
-- [ ] No public `--verify-before-output`.
-- [ ] `grep -e --top` is documented.
-- [ ] `convert` helper behavior is documented.
+- [ ] Release binary is built from a clean checkout.
+- [ ] Artifact name is correct.
+- [ ] SHA256 checksum is generated.
+- [ ] Archive contains the binary and license files.
+- [ ] Generated release artifacts are not committed accidentally.
 
-## Release notes
+## Final smoke check
 
-- [ ] Summarize search/compression goals.
-- [ ] Summarize command set.
-- [ ] Summarize benchmark headline without overclaiming.
-- [ ] Note that timings vary by system.
-- [ ] Note that the format remains experimental.
+```bash
+zlg version
+zlg compress -m fast sample.log sample.log.zlg
+zlg grep -r 'error|warn|fail' sample.log.zlg
+zlg grep --extract --top 'status=[a-z]+' sample.log.zlg
+zlg stats sample.log.zlg
+zlg test sample.log.zlg
+```

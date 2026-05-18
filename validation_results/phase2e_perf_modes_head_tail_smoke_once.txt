@@ -1,9 +1,0 @@
-Phase 2e fast/standard performance, head, and tail smoke bench
-timestamp_utc=2026-05-17T20:02:44Z
-zlg_bin=target/release/zlg
-measurement=python os.wait4 resource accounting
-
-wrote validation_results/phase2e_perf_modes_head_tail_smoke.csv
-wrote validation_results/phase2e_perf_modes_head_tail_smoke.md
-
-Phase 2e fast/standard performance, head, and tail smoke bench complete

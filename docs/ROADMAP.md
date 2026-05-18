@@ -1,123 +1,37 @@
-# zlg Roadmap
+# Roadmap
 
-This roadmap supersedes the short Phase 2-only checklists. Historical Phase 0 and Phase 1 files remain traceability records.
+## Current focus
 
-## Phase 0 - Format and search proof
+zlg currently has the core command surface in place:
 
-Status: complete.
+```text
+compress, decompress, cat, grep, head, tail, test, info, stats, convert
+```
 
-- Proved independent zstd-backed chunks.
-- Proved line-aligned chunks.
-- Proved mesh-bigram summary and summary-first skip.
-- Benchmarked regex and fixed-search behavior.
+`grep --extract --top` provides the first extraction aggregation workflow without making zlg a parser or a general log analytics engine.
 
-## Phase 1 - Final stack selection
+## Near-term work
 
-Status: complete.
+- Validate release packaging on a clean Linux environment.
+- Improve command error messages and exit-code consistency.
+- Keep benchmark snapshots reproducible and easy to refresh.
+- Add man-page packaging if release artifacts include manuals.
+- Review whether shell completions are worth adding.
 
-- Selected the production stack.
-- Optimized the build path.
-- Validated compressed search speed and storage behavior.
+## Later work
 
-## Phase 2 - CLI maturity
+- Larger benchmark corpora and multi-GB validation.
+- More realistic logs: auth, web, firewall, JSON, high-cardinality, and Unicode-heavy logs.
+- Optional parallel compression pipeline exploration.
+- Optional embedded decoder measurement for gzip, bzip2, and xz.
+- Possible standalone `zlg top` only if there is a narrow, non-parser use case.
+- Possible default compression-mode change if `fast` remains the best operational default.
 
-Status: functionally complete, pending final validation of Phase 2o reconciliation.
+## Explicitly out of scope for now
 
-Completed:
-
-- compress, decompress, cat, grep, head, tail, test, info, stats, convert
-- extract/top through grep: `zlg grep -e -t`
-- helper-based convert for `.gz`, `.bz2`, `.xz`
-- internal `.zst` convert path
-- archive hardening and repeated median benchmark scripts
-
-Deferred from Phase 2:
-
-- standalone `zlg top`
-- parser-like top lines/tokens/fields
-- embedded gzip/bzip2/xz decoders
-- format freeze
-
-## Phase 3 - Release readiness and installability
-
-Status: in progress.
-
-Goals:
-
-- user-facing documentation
-- command reference
-- install/uninstall guidance
-- man-page draft
-- release checklist
-- release artifact dry-run script
-- package/audit script
-
-## Phase 4 - Error quality and operational hardening
-
-Planned:
-
-- improve user-facing error categories
-- strengthen helper failure messages
-- document exit behavior
-- add more malformed archive fixtures
-- review temp-file cleanup on interrupted commands
-
-## Phase 5 - Format specification and compatibility policy
-
-Planned:
-
-- formal `.zlg` format specification
-- compatibility policy
-- golden fixtures
-- version negotiation rules
-- checksum policy review
-
-No format freeze until this phase is complete.
-
-## Phase 6 - Large-scale performance validation
-
-Planned:
-
-- 500 MB and 1 GB corpora
-- repeated medians by default
-- fast vs standard default-mode decision support
-- more realistic log shapes
-
-## Phase 7 - Parallel pipeline exploration
-
-Planned, design-first:
-
-- parallel chunk building
-- parallel summary building
-- parallel zstd compression
-- deterministic output preservation
-- bounded memory queues
-
-## Phase 8 - Search feature expansion
-
-Planned, design-first:
-
-- context lines
-- count-only refinements
-- JSONL output
-- case/invert interactions
-- explain/debug search mode
-
-## Phase 9 - Embedded decoder decision
-
-Planned:
-
-- measure embedded gzip/bzip2/xz decoder overhead
-- compare against helper-based convert
-- decide whether helper-only remains the default design
-
-## Phase 10 - Distribution and release polish
-
-Planned:
-
-- release tarballs
-- checksums
-- man page packaging
-- shell completions if added
-- GitHub release notes
-- possible package manager exploration
+- Full log parsing.
+- Field-aware analytics.
+- Top tokens, top fields, or semantic log understanding.
+- Broad Unix-clone behavior.
+- Async worker pools.
+- Embedded gzip/bzip2/xz decoders in the default binary.

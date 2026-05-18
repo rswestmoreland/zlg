@@ -1,202 +1,117 @@
-# zlg Command Reference
+# Command reference
 
-This reference documents the current pre-1.0 command surface.
-
-## Global shape
+## Global commands
 
 ```text
-zlg <command> [options]
+zlg help [command]
+zlg version [-l|--long]
 ```
 
-Commands:
+## compress
 
 ```text
-help
-version
-compress
-decompress
-cat
-grep
-head
-tail
-test
-info
-stats
-convert
+zlg compress [options] <input.log> <output.zlg>
 ```
 
-Standalone `zlg top` is deferred. Top aggregation is currently available through `zlg grep -e -t`.
-
-## Compression modes
+Common options:
 
 ```text
-none      store payloads uncompressed inside .zlg chunks
-fast      zstd level 3
-standard  zstd level 6, current default
-best      zstd level 8
-```
-
-Use `-m, --mode` where compression mode is supported.
-
-## zlg version
-
-```text
-zlg version
-zlg version -l
-zlg version --long
-```
-
-Shows concise or long version/build/default information.
-
-Options:
-
-```text
--l, --long
-```
-
-## zlg compress
-
-```text
-zlg compress [input.log] -o output.zlg
-zlg compress [input.log] -o output.zlg -m fast
-zlg compress [input.log] -o output.zlg -y
-```
-
-Options:
-
-```text
--o, --output <path>
 -m, --mode <none|fast|standard|best>
 -y, --force
 ```
 
-Behavior:
-
-- Reads stdin when input is omitted.
-- Refuses to overwrite output unless `-y, --force` is used.
-- Keeps the locked default chunking and summary stack.
-
-## zlg decompress
-
-```text
-zlg decompress input.zlg -o output.log
-zlg decompress input.zlg -o output.log -y
-```
-
-Options:
-
-```text
--o, --output <path>
--y, --force
-```
-
-Alias behavior:
-
-- `decompress` and `cat` share the same core output path.
-
-## zlg cat
-
-```text
-zlg cat input.zlg
-zlg cat input.zlg -o output.log
-zlg cat input.zlg -o output.log -y
-```
-
-Options:
-
-```text
--o, --output <path>
--y, --force
-```
-
-## zlg grep
-
-```text
-zlg grep 'pattern' input.zlg
-zlg grep -f 'literal' input.zlg
-zlg grep -p '(?<=status=)[a-z]+' input.zlg
-zlg grep -e 'status=[a-z]+' input.zlg
-zlg grep -te 'status=[a-z]+' input.zlg
-zlg grep -pte '(?<=status=)[a-z]+' input.zlg
-zlg grep -g 'error' input.zlg
-zlg grep -s 'pattern' input.zlg
-```
-
-Options:
-
-```text
--f, --fixed                  fixed-string search
--p, --pcre2                  PCRE2 regex mode
--e, --extract                print extracted matches
--t, --top                    aggregate extracted matches
--l, --limit <n>              top output rows, default 20
--a, --cap <n>                distinct extracted-value cap, default 100000
--r, --truncate <bytes>       truncate extracted values before counting/display
--j, --json                   JSON output for top aggregation
--n, --line-number            print line numbers
--i, --ignore-case            case-insensitive search
--c, --count                  print match count
--g, --paths                  print only input paths with at least one match
--v, --invert-match           invert line match
--u, --no-filename            suppress filename prefix
--w, --with-filename          force filename prefix
--m, --head <n>               stop after n matching lines
--s, --strict                 verify candidate chunk before emitting output
-```
-
-Rules:
-
-- `-f, --fixed` and `-p, --pcre2` are mutually exclusive.
-- `-t, --top` requires `-e, --extract`.
-- `--top` emits aggregate output only, not normal match lines.
-- If `--cap` is exceeded, zlg exits with an error and emits no trusted top results.
-- `--strict` is opt-in. Default grep remains streaming and low-latency.
-- Stacked boolean flags such as `-te`, `-pte`, and `-se` are supported by the CLI parser.
-
-Shell quoting examples:
+Examples:
 
 ```bash
-zlg grep -te 'status=[a-z]+' app.zlg
-STATUS='failed|denied'
-zlg grep -pte "status=(${STATUS})" app.zlg
+zlg compress app.log app.log.zlg
+zlg compress -m fast app.log app.log.zlg
+zlg compress --mode standard app.log app.log.zlg --force
 ```
 
-Use single quotes for static shell patterns and double quotes when shell variable interpolation is intended.
-
-## zlg head
+## cat and decompress
 
 ```text
-zlg head input.zlg
-zlg head -n 25 input.zlg
+zlg cat [options] <input.zlg>
+zlg decompress [options] <input.zlg>
 ```
 
-Options:
+Common options:
 
 ```text
--n, --lines <n>
+-o, --output <path>
+-y, --force
 ```
 
-## zlg tail
+Examples:
 
-```text
-zlg tail input.zlg
-zlg tail -n 100 input.zlg
+```bash
+zlg cat app.log.zlg
+zlg cat app.log.zlg -o app.log
+zlg decompress app.log.zlg --output app.log --force
 ```
 
-Options:
+## grep
 
 ```text
--n, --lines <n>
+zlg grep [options] <pattern> <input.zlg>...
 ```
 
-File-backed `tail` uses archive metadata to decode only selected trailing chunks.
-
-## zlg test
+Search options:
 
 ```text
-zlg test input.zlg
-zlg test -j input.zlg
-zlg test -q input.zlg
+-r, --regex                  regex search, default matcher
+-f, --fixed                  fixed-string search
+-p, --pcre2                  PCRE2 regex mode
+-i, --ignore-case
+-v, --invert-match
+-c, --count
+-n, --line-number
+-g, --paths                  print only matching input paths
+-m, --head <n>               stop after n matching lines
+-s, --strict                 verify candidate chunks before output
+```
+
+Extraction and top options:
+
+```text
+-e, --extract
+-t, --top
+-l, --limit <n>
+-a, --cap <n>
+-b, --truncate <bytes>
+-j, --json
+```
+
+Examples:
+
+```bash
+zlg grep -r 'error|warn|fail' app.log.zlg
+zlg grep -f 'literal needle' app.log.zlg
+zlg grep -p '(?<=status=)[a-z]+' app.log.zlg
+zlg grep --extract --top 'status=[a-z]+' app.log.zlg
+zlg grep --pcre2 --extract --top --json '(?<=src_ip=)[0-9.]+' firewall.zlg
+```
+
+`--top` requires `--extract`. If `--cap` is exceeded, zlg exits with an error and emits no top results.
+
+## head and tail
+
+```text
+zlg head [-n|--lines <n>] <input.zlg>
+zlg tail [-n|--lines <n>] <input.zlg>
+```
+
+Examples:
+
+```bash
+zlg head -n 20 app.log.zlg
+zlg tail -n 100 app.log.zlg
+```
+
+## test
+
+```text
+zlg test [options] <input.zlg>
 ```
 
 Options:
@@ -206,52 +121,19 @@ Options:
 -q, --quiet
 ```
 
-Behavior:
-
-- Validates archive structure and chunk integrity.
-- File-backed input checks metadata totals against decoded totals.
-- `--json` and `--quiet` are mutually exclusive.
-
-## zlg info
+## info and stats
 
 ```text
-zlg info input.zlg
-zlg info -j input.zlg
+zlg info [-j|--json] <input.zlg>
+zlg stats [-j|--json] <input.zlg>
 ```
 
-Options:
+`info` focuses on archive layout. `stats` focuses on content and storage ratios.
+
+## convert
 
 ```text
--j, --json
-```
-
-Shows format, archive, and layout metadata.
-
-## zlg stats
-
-```text
-zlg stats input.zlg
-zlg stats -j input.zlg
-```
-
-Options:
-
-```text
--j, --json
-```
-
-Shows content, storage, and format stats. JSON output is intended for scripts.
-
-## zlg convert
-
-```text
-zlg convert input.log.zst
-zlg convert input.log.gz
-zlg convert input.log.bz2
-zlg convert input.log.xz
-zlg convert input.log.gz output.zlg
-zlg convert input.log.xz output.zlg -m fast
-zlg convert input.log.bz2 output.zlg -y
+zlg convert [options] <compressed-input> [output.zlg]
 ```
 
 Options:
@@ -261,14 +143,23 @@ Options:
 -y, --force
 ```
 
-Rules:
+Supported inputs:
 
-- `convert` is for already-compressed inputs only.
-- Plain logs should use `zlg compress`.
-- There is no `-o` or `--output` option.
-- If output is omitted, the final extension is replaced with `.zlg`.
-- `.zst` uses the existing internal zstd decoder.
-- `.gz` uses `gzip -dc` from PATH.
-- `.bz2` uses `bzip2 -dc` from PATH.
-- `.xz` uses `xz -dc` from PATH.
-- Helpers are invoked directly without a shell.
+```text
+.zst  internal zstd support
+.gz   gzip -dc helper
+.bz2  bzip2 -dc helper
+.xz   xz -dc helper
+```
+
+Examples:
+
+```bash
+zlg convert app.log.zst
+zlg convert app.log.gz
+zlg convert app.log.bz2
+zlg convert app.log.xz
+zlg convert app.log.gz app-archive.zlg -m fast
+```
+
+Plain logs should use `zlg compress`.

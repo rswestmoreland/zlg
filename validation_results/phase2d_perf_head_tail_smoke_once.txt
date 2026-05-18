@@ -1,9 +1,0 @@
-Phase 2d performance/head/tail smoke bench
-timestamp_utc=2026-05-17T20:02:22Z
-zlg_bin=target/release/zlg
-measurement=python os.wait4 resource accounting
-
-wrote validation_results/phase2d_perf_head_tail_smoke.csv
-wrote validation_results/phase2d_perf_head_tail_smoke.md
-
-Phase 2d performance/head/tail smoke bench complete

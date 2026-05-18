@@ -1,7 +1,0 @@
-policy,summary_mode,zlg_bytes,compress_seconds,grep_seconds,match_output_bytes,chunks_total,chunks_skipped,candidate_chunks,chunks_decoded,decoded_bytes,decoded_ratio,selected_chunk_ratio,matching_lines,selector_kind,selector_len,selector_count,gzip6_seconds,gzip6_bytes
-fixed-lines512,path-window,35670345,0.865311,0.185386,123,245,244,1,1,38135,0.004134,0.004082,1,literal_all,13,1,0.214474,839949
-fixed-lines512,bitmap,4809053,0.153036,0.022966,123,245,188,57,57,2153057,0.233427,0.232653,1,literal_all,13,1,0.214474,839949
-fixed-lines512,none,777333,0.070216,0.046961,123,245,0,245,245,9223684,1.000000,1.000000,1,literal_all,13,1,0.214474,839949
-fixed-lines1024,path-window,29049485,0.812577,0.173263,123,123,122,1,1,75841,0.008222,0.008130,1,literal_all,13,1,0.214474,839949
-fixed-lines1024,bitmap,2738625,0.141914,0.029493,123,123,66,57,57,4305731,0.466813,0.463415,1,literal_all,13,1,0.214474,839949
-fixed-lines1024,none,714537,0.066866,0.046189,123,123,0,123,123,9223684,1.000000,1.000000,1,literal_all,13,1,0.214474,839949

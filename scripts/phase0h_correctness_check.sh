@@ -43,9 +43,9 @@ compare \
     "cargo run --quiet -- grep -f 'alpha' '$zlg_file'"
 
 compare \
-    only_matching \
+    extract \
     "grep -oE 'key=\"[^\"]+\"' '$input'" \
-    "cargo run --quiet -- grep -o 'key=\"[^\"]+\"' '$zlg_file'"
+    "cargo run --quiet -- grep -e 'key=\"[^\"]+\"' '$zlg_file'"
 
 compare \
     line_numbers \
@@ -68,12 +68,12 @@ compare \
     "cargo run --quiet -- grep -v 'warning' '$zlg_file'"
 
 fancy_actual="$tmp_dir/fancy.actual"
-cargo run --quiet -- grep -o -p '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual"
+cargo run --quiet -- grep -e -p '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual"
 if [[ "$(cat "$fancy_actual")" != 'abc' ]]; then
     echo "phase0h correctness failed: fancy lookbehind extraction" >&2
     cat "$fancy_actual" >&2
     exit 1
 fi
-echo "phase0h correctness ok: fancy_lookbehind_only_matching"
+echo "phase0h correctness ok: fancy_lookbehind_extract"
 
 printf 'phase0h correctness: pass\n'

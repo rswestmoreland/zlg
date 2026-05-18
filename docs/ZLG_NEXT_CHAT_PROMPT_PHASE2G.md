@@ -23,7 +23,7 @@ Current implementation to validate:
 - expanded zlg stats --json numeric fields
 - Phase 2e performance smoke bench comparing gzip, zlg fast, and zlg standard
 - search/head/tail/tail_large parity checks across plain, gzip, zlg fast, and zlg standard
-- long-only --force output overwrite safety for compress, cat, and decompress
+- -y/--force output overwrite safety for compress, cat, and decompress
 - improved zlg test text/json/quiet output
 - file-backed zlg test validates metadata totals against decoded totals
 - Phase 2g archive corruption probe
@@ -63,7 +63,7 @@ CLI decisions to preserve:
 - use -f/--fixed instead of -F
 - use --mode, not --preset
 - use --head, not --max-count
-- use long-only --force for intentional output overwrite
+- use -y/--force for intentional output overwrite
 - do not use -f for force
 - do not expose the full numeric compression-level range in normal CLI
 - do not expose hidden benchmark/developer options in normal help

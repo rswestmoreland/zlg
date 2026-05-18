@@ -34,8 +34,8 @@ The default mode is `standard`.
 - Do not use uppercase feature flags.
 - Use `-p`, `--pcre2` instead of `-P`.
 - Use `-f`, `--fixed` instead of `-F`.
-- Use `--head` as the stop option; do not carry both `--head` and `--max-count`.
-- Use long-only `--force` for intentional output overwrite. Do not use short `-f` for force because `grep -f` is already locked for fixed-string search.
+- Use `-m`, `--head` as the stop option; do not carry both `--head` and `--max-count`.
+- Every public option should have a lowercase short form and lowercase long form where practical. Use `-y`, `--force` for intentional output overwrite. Do not use short `-f` for force because `grep -f` is already locked for fixed-string search.
 
 ## Command style
 
@@ -55,7 +55,6 @@ tail
 test
 info
 stats
-top
 convert
 ```
 
@@ -89,7 +88,7 @@ The Phase 2 CLI validation/fix pass at commit 6eab4a3 passed the required Rust v
 
 ## Head/tail metadata
 
-Efficient `tail` requires line counts in the directory or metadata associated with chunks. Phase 2c uses the existing footer/directory metadata for file-backed `tail`, `info`, and `stats`. Phase 2e keeps `stats` as a zlg-specific archive report rather than wc-style output. The safety pass refuses output overwrite by default and uses long-only `--force` for intentional replacement. Phase 2g adds `zlg test --json` and `zlg test --quiet`, and makes file-backed `zlg test` validate metadata totals against decoded totals.
+Efficient `tail` requires line counts in the directory or metadata associated with chunks. Phase 2c uses the existing footer/directory metadata for file-backed `tail`, `info`, and `stats`. Phase 2e keeps `stats` as a zlg-specific archive report rather than wc-style output. The safety pass refuses output overwrite by default and uses `-y`, `--force` for intentional replacement. Phase 2g adds `zlg test --json` and `zlg test --quiet`, and makes file-backed `zlg test` validate metadata totals against decoded totals.
 
 Store:
 
@@ -118,7 +117,7 @@ Rules:
 - no `-o` or `--output` option
 - omitted output removes the last extension and adds `.zlg`
 - reuse `--mode` for output compression mode
-- reuse long-only `--force` for intentional overwrite
+- reuse `-y`, `--force` for intentional overwrite
 - reject plain logs with a message pointing users to `zlg compress`
 - do not invoke helpers through a shell
 
@@ -152,9 +151,22 @@ memchr line splitting
 `zlg test` should be useful for both humans and scripts. Normal output is readable text, `--json` is for scripted validation, and `--quiet` is for exit-code-only checks. `--json` and `--quiet` conflict by design. For file-backed inputs, `zlg test` should validate both the seekable metadata and the decoded chunk payloads. For stdin, it should fall back to streaming validation.
 
 
+## Phase 2n extract/top design
+
+- Use `-e`, `--extract` instead of `-o`, `--only-matching`.
+- Use `-t`, `--top` for top aggregation of extracted matches.
+- `--top` requires `-e`, `--extract`.
+- Use `-l`, `--limit` for number of top rows, default 20.
+- Use `-a`, `--cap` for maximum distinct extracted values, default 100000. If exceeded, exit with an error and emit no top results.
+- Use `-r`, `--truncate` for maximum stored/displayed bytes per extracted value, default 1000.
+- Use `-j`, `--json` for top JSON output.
+- Use `-g`, `--paths` instead of `--files-with-matches`.
+- Do not implement parser-like top lines, top tokens, or top fields. This phase is extraction aggregation only.
+- A standalone `zlg top` remains deferred.
+
 ## Phase 2h-2l additions
 
-- Use long-only `--strict` for grep candidate-chunk verification before output.
+- Use `-s`, `--strict` for grep candidate-chunk verification before output.
 - Default grep remains streaming and low-latency.
 - The chunk CRC is over uncompressed chunk bytes.
 - `zlg info` and `zlg stats` should use sectioned, screenshot-friendly text output plus JSON for scripts.

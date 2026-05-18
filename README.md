@@ -2,7 +2,7 @@
 
 `zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
 
-The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, Phase 2d through commit 2c5b8c8, Phase 2e/2g through commit 3623975, and Phase 2h-2l through commit 260ca74. The current pre-validation package starts Phase 2m with helper-based `zlg convert` support for already-compressed inputs. Top remains deferred.
+The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, Phase 2d through commit 2c5b8c8, Phase 2e/2g through commit 3623975, and Phase 2h-2l through commit 260ca74. The current pre-validation package starts Phase 2m with helper-based `zlg convert` support for already-compressed inputs. The standalone `top` subcommand remains deferred; Phase 2n adds `grep --extract --top` for optimized extraction aggregation.
 
 ## Current status
 
@@ -49,7 +49,7 @@ The default compression mode is `standard`.
 - Include `head` and `tail` as first-class commands.
 - Store and use line-count and byte-count metadata so file-backed `tail`, `info`, and `stats` can be efficient.
 - Keep `stats` as a pleasant zlg-specific report, with `--json` for scripts. Do not add a separate `wc` command.
-- Refuse to overwrite output files by default; use long-only `--force` when replacement is intentional.
+- Refuse to overwrite output files by default; use `-y, --force` when replacement is intentional.
 - Keep sort/uniq design open, likely through top/extract/count/sort workflows first.
 - Keep conversion support lean. `zlg convert` is for already-compressed inputs; plain logs should use `zlg compress`. Use internal `.zst` decoding and helper-based `.gz`, `.bz2`, and `.xz` decoding first to avoid growing the binary with new codec crates.
 
@@ -67,7 +67,6 @@ zlg tail
 zlg test
 zlg info
 zlg stats
-zlg top
 zlg convert
 ```
 
@@ -79,22 +78,47 @@ Implemented and validated in Phase 2:
 
 - `zlg help` through the normal clap help command path
 - `zlg version`
-- `zlg compress` with `--mode <none|fast|standard|best>` and long-only `--force` for intentional overwrite
-- `zlg decompress` with long-only `--force` for intentional overwrite
-- `zlg cat` with long-only `--force` for intentional overwrite
-- `zlg grep` with lowercase `-f`, `-p`, `--head`, and opt-in `--strict`
+- `zlg compress` with `--mode <none|fast|standard|best>` and `-y, --force` for intentional overwrite
+- `zlg decompress` with `-y, --force` for intentional overwrite
+- `zlg cat` with `-y, --force` for intentional overwrite
+- `zlg grep` with lowercase short/long options including `-f/--fixed`, `-p/--pcre2`, `-e/--extract`, `-t/--top`, `-g/--paths`, `-m/--head`, and opt-in `-s/--strict`
 - `zlg head`
 - `zlg tail` with a seekable metadata path for file inputs
 - `zlg test` with readable text output, `--json`, and `--quiet`
 - `zlg info` using metadata for file inputs
 - `zlg stats` using metadata for file inputs, with readable text output and JSON output
 - `zlg convert` for already-compressed `.zst`, `.gz`, `.bz2`, and `.xz` inputs
+- `zlg grep -e/--extract -t/--top` for counting extracted matches without a shell pipeline
 
 Deferred command design topics:
 
-- `zlg top`
-- sort/uniq-like workflows
+- standalone `zlg top` remains deferred; first support is `zlg grep --extract --top`
+- parser-like top lines/tokens/fields are out of scope
+- sort/uniq-like workflows remain design topics
 
+
+
+## Extract and top matches
+
+`zlg grep` supports extraction and top aggregation without requiring a shell pipeline. This keeps the optimized zlg search path, including summary-first chunk skipping, then counts extracted matches internally.
+
+```text
+zlg grep -e 'status=[a-z]+' app.zlg
+zlg grep -te 'status=[a-z]+' app.zlg
+zlg grep -pte '(?<=status=)[a-z]+' app.zlg
+zlg grep -te --limit 10 --cap 100000 --truncate 1000 'user=[^ ]+' auth.zlg
+zlg grep -te --json 'src_ip=[0-9.]+' firewall.zlg
+```
+
+Top output uses `Rank`, `Count`, `Percent`, and `Value`. `--top` requires `-e, --extract`. The safety cap defaults to 100,000 distinct extracted values; if the cap is reached, zlg exits with an error and emits no top results because the output would be incomplete. Extracted values are truncated to 1,000 bytes by default before counting/display.
+
+Use single quotes for static shell patterns and double quotes when shell variable interpolation is intended:
+
+```bash
+zlg grep -te 'status=[a-z]+' app.zlg
+STATUS='failed|denied'
+zlg grep -pte "status=(${STATUS})" app.zlg
+```
 
 ## Convert compressed logs
 

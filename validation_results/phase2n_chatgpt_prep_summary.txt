@@ -1,0 +1,22 @@
+Phase 2n ChatGPT prep summary
+
+Implemented prep changes:
+- Added grep -e/--extract as the public extraction option.
+- Removed pre-release -o/--only-matching from grep help/code paths.
+- Added grep -t/--top for aggregation of extracted matches.
+- Added grep -l/--limit, -a/--cap, -r/--truncate, and -j/--json for top output.
+- Replaced files-with-matches spelling with -g/--paths.
+- Added short option forms for mode, force, json, quiet, strict, and related public options.
+- Added top aggregation safety behavior: cap overflow returns an error and emits no top results.
+- Added truncation behavior for long extracted values.
+- Updated smoke scripts and active docs for extract/top and short-option consistency.
+- Added docs/PHASE2N_EXTRACT_TOP_AND_OPTION_CONSISTENCY.md.
+
+Sandbox checks run:
+- python3 -m py_compile for Phase 2 benchmark/probe tools
+- bash -n for updated smoke/check scripts
+- ASCII scan
+- path-length scan
+- zip integrity check
+
+Rust/Cargo validation was not available in this sandbox.

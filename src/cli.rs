@@ -9,7 +9,7 @@ use crate::search::{GrepOptions, MatchCounters, Matcher, SearchSummaryMode};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -200,10 +200,10 @@ pub struct ConvertArgs {
 
     pub output: Option<PathBuf>,
 
-    #[arg(long, value_enum, default_value_t = CompressionModeArg::Standard)]
+    #[arg(short = 'm', long, value_enum, default_value_t = CompressionModeArg::Standard)]
     pub mode: CompressionModeArg,
 
-    #[arg(long)]
+    #[arg(short = 'y', long)]
     pub force: bool,
 }
 
@@ -214,7 +214,7 @@ pub struct CompressArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    #[arg(long, value_enum, default_value_t = CompressionModeArg::Standard)]
+    #[arg(short = 'm', long, value_enum, default_value_t = CompressionModeArg::Standard)]
     pub mode: CompressionModeArg,
 
     #[arg(long, value_enum, default_value_t = ChunkPolicyArg::FixedLines8192Cap8m, hide = true)]
@@ -229,7 +229,7 @@ pub struct CompressArgs {
     #[arg(long, hide = true)]
     pub build_stats_json: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'y', long)]
     pub force: bool,
 }
 
@@ -240,7 +240,7 @@ pub struct CatArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'y', long)]
     pub force: bool,
 }
 
@@ -256,10 +256,10 @@ pub struct HeadTailArgs {
 pub struct TestArgs {
     pub input: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'j', long)]
     pub json: bool,
 
-    #[arg(long)]
+    #[arg(short = 'q', long)]
     pub quiet: bool,
 }
 
@@ -267,13 +267,13 @@ pub struct TestArgs {
 pub struct InfoStatsArgs {
     pub input: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'j', long)]
     pub json: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct VersionArgs {
-    #[arg(long)]
+    #[arg(short = 'l', long)]
     pub long: bool,
 }
 
@@ -289,8 +289,23 @@ pub struct GrepArgs {
     #[arg(short = 'p', long)]
     pub pcre2: bool,
 
-    #[arg(short = 'o', long)]
-    pub only_matching: bool,
+    #[arg(short = 'e', long)]
+    pub extract: bool,
+
+    #[arg(short = 't', long)]
+    pub top: bool,
+
+    #[arg(short = 'l', long, default_value_t = 20)]
+    pub limit: usize,
+
+    #[arg(short = 'a', long, default_value_t = 100_000)]
+    pub cap: usize,
+
+    #[arg(short = 'r', long, default_value_t = 1_000)]
+    pub truncate: usize,
+
+    #[arg(short = 'j', long)]
+    pub json: bool,
 
     #[arg(short = 'n', long)]
     pub line_number: bool,
@@ -301,25 +316,25 @@ pub struct GrepArgs {
     #[arg(short = 'c', long)]
     pub count: bool,
 
-    #[arg(short = 'l', long)]
-    pub files_with_matches: bool,
+    #[arg(short = 'g', long)]
+    pub paths: bool,
 
     #[arg(short = 'v', long)]
     pub invert_match: bool,
 
-    #[arg(long)]
+    #[arg(short = 'u', long)]
     pub no_filename: bool,
 
-    #[arg(long)]
+    #[arg(short = 'w', long)]
     pub with_filename: bool,
 
     #[arg(long, hide = true)]
     pub stats_json: Option<PathBuf>,
 
-    #[arg(long)]
+    #[arg(short = 'm', long)]
     pub head: Option<usize>,
 
-    #[arg(long)]
+    #[arg(short = 's', long)]
     pub strict: bool,
 }
 
@@ -652,19 +667,207 @@ impl GrepStats {
     }
 }
 
+#[derive(Debug)]
+struct TopAggregator {
+    pattern: String,
+    limit: usize,
+    cap: usize,
+    truncate: usize,
+    total_matches: u64,
+    values: HashMap<Vec<u8>, TopValue>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TopValue {
+    count: u64,
+    truncated: bool,
+}
+
+#[derive(Debug)]
+struct TopRow {
+    value: Vec<u8>,
+    count: u64,
+    truncated: bool,
+}
+
+impl TopAggregator {
+    fn new(pattern: &str, limit: usize, cap: usize, truncate: usize) -> Self {
+        Self {
+            pattern: pattern.to_string(),
+            limit,
+            cap,
+            truncate,
+            total_matches: 0,
+            values: HashMap::new(),
+        }
+    }
+
+    fn add(&mut self, value: &[u8]) -> Result<()> {
+        self.total_matches += 1;
+        let truncated = value.len() > self.truncate;
+        let key = if truncated {
+            value[..self.truncate].to_vec()
+        } else {
+            value.to_vec()
+        };
+
+        if !self.values.contains_key(&key) && self.values.len() >= self.cap {
+            return Err(anyhow!(
+                "top aggregation exceeded --cap={} distinct extracted values; no results were emitted because the top output would be incomplete. Use a narrower pattern, increase --cap, or add --head to process fewer lines.",
+                self.cap
+            ));
+        }
+
+        let entry = self.values.entry(key).or_insert(TopValue {
+            count: 0,
+            truncated: false,
+        });
+        entry.count += 1;
+        entry.truncated |= truncated;
+        Ok(())
+    }
+
+    fn rows(&self) -> Vec<TopRow> {
+        let mut rows: Vec<TopRow> = self
+            .values
+            .iter()
+            .map(|(value, entry)| TopRow {
+                value: value.clone(),
+                count: entry.count,
+                truncated: entry.truncated,
+            })
+            .collect();
+        rows.sort_by(|left, right| {
+            right
+                .count
+                .cmp(&left.count)
+                .then_with(|| left.value.cmp(&right.value))
+        });
+        rows.truncate(self.limit);
+        rows
+    }
+
+    fn write_text(&self, writer: &mut dyn Write) -> Result<()> {
+        writeln!(writer, "Top extracted matches")?;
+        writeln!(writer, "=====================")?;
+        writeln!(writer)?;
+        print_report_row(writer, "Pattern", &self.pattern)?;
+        print_report_row(writer, "Total matches", &format_count(self.total_matches))?;
+        print_report_row(writer, "Unique values", &format_count(self.values.len() as u64))?;
+        print_report_row(writer, "Limit", &format_count(self.limit as u64))?;
+        print_report_row(writer, "Cap", &format_count(self.cap as u64))?;
+        print_report_row(writer, "Truncate bytes", &format_count(self.truncate as u64))?;
+        writeln!(writer)?;
+        writeln!(writer, "Rank  Count       Percent  Value")?;
+        for (index, row) in self.rows().iter().enumerate() {
+            let percent = if self.total_matches == 0 {
+                0.0
+            } else {
+                row.count as f64 / self.total_matches as f64 * 100.0
+            };
+            let mut value = display_match_value(&row.value);
+            if row.truncated {
+                value.push_str(" [truncated]");
+            }
+            writeln!(
+                writer,
+                "{:<5} {:>10} {:>7.2}%  {}",
+                index + 1,
+                format_count(row.count),
+                percent,
+                value
+            )?;
+        }
+        Ok(())
+    }
+
+    fn write_json(&self, writer: &mut dyn Write) -> Result<()> {
+        writeln!(writer, "{{")?;
+        writeln!(writer, "  \"pattern\": \"{}\",", json_escape(&self.pattern))?;
+        writeln!(writer, "  \"total_matches\": {},", self.total_matches)?;
+        writeln!(writer, "  \"unique_values\": {},", self.values.len())?;
+        writeln!(writer, "  \"limit\": {},", self.limit)?;
+        writeln!(writer, "  \"cap\": {},", self.cap)?;
+        writeln!(writer, "  \"truncate\": {},", self.truncate)?;
+        writeln!(writer, "  \"items\": [")?;
+        let rows = self.rows();
+        for (index, row) in rows.iter().enumerate() {
+            let percent = if self.total_matches == 0 {
+                0.0
+            } else {
+                row.count as f64 / self.total_matches as f64 * 100.0
+            };
+            let comma = if index + 1 == rows.len() { "" } else { "," };
+            writeln!(writer, "    {{")?;
+            writeln!(writer, "      \"rank\": {},", index + 1)?;
+            writeln!(writer, "      \"count\": {},", row.count)?;
+            writeln!(writer, "      \"percent\": {:.6},", percent)?;
+            writeln!(
+                writer,
+                "      \"value\": \"{}\",",
+                json_escape(&display_match_value(&row.value))
+            )?;
+            writeln!(writer, "      \"truncated\": {}", row.truncated)?;
+            writeln!(writer, "    }}{}", comma)?;
+        }
+        writeln!(writer, "  ]")?;
+        writeln!(writer, "}}")?;
+        Ok(())
+    }
+}
+
 pub fn run_grep(args: GrepArgs) -> Result<()> {
     if args.fixed && args.pcre2 {
         return Err(anyhow!("cannot combine -f and -p"));
+    }
+    if args.top && !args.extract {
+        return Err(anyhow!("--top requires -e/--extract"));
+    }
+    if args.top && args.invert_match {
+        return Err(anyhow!("cannot combine --top and -v/--invert-match"));
+    }
+    if args.top && args.count {
+        return Err(anyhow!("cannot combine --top and -c/--count"));
+    }
+    if args.top && args.paths {
+        return Err(anyhow!("cannot combine --top and -g/--paths"));
+    }
+    if args.top && args.line_number {
+        return Err(anyhow!("cannot combine --top and -n/--line-number"));
+    }
+    if args.top && (args.no_filename || args.with_filename) {
+        return Err(anyhow!("cannot combine --top with filename prefix options"));
+    }
+    if args.json && !args.top {
+        return Err(anyhow!("-j/--json is currently supported only with --top"));
+    }
+    if args.top && args.limit == 0 {
+        return Err(anyhow!("--limit must be greater than zero"));
+    }
+    if args.top && args.cap == 0 {
+        return Err(anyhow!("--cap must be greater than zero"));
+    }
+    if args.top && args.truncate == 0 {
+        return Err(anyhow!("--truncate must be greater than zero"));
+    }
+    if !args.top && args.limit != 20 {
+        return Err(anyhow!("--limit requires --top"));
+    }
+    if !args.top && args.cap != 100_000 {
+        return Err(anyhow!("--cap requires --top"));
+    }
+    if !args.top && args.truncate != 1_000 {
+        return Err(anyhow!("--truncate requires --top"));
     }
 
     let options = GrepOptions {
         fixed_strings: args.fixed,
         perl_regexp: args.pcre2,
-        only_matching: args.only_matching,
+        extract: args.extract,
         line_number: args.line_number,
         ignore_case: args.ignore_case,
         count: args.count,
-        files_with_matches: args.files_with_matches,
+        paths: args.paths,
         invert_match: args.invert_match,
         max_count: args.head,
         stream_decode: !args.strict,
@@ -672,6 +875,16 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
 
     let matcher = Matcher::new(&args.pattern, options.clone())?;
     let mut stdout = BufWriter::new(io::stdout().lock());
+    let mut top = if args.top {
+        Some(TopAggregator::new(
+            &args.pattern,
+            args.limit,
+            args.cap,
+            args.truncate,
+        ))
+    } else {
+        None
+    };
     let mut stats = GrepStats {
         selector_kind: matcher.selector_kind(),
         selector_len: matcher.selector_len(),
@@ -690,7 +903,18 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
             &options,
             &mut stdout,
             &mut stats,
+            top.as_mut(),
         )?;
+        if let Some(top) = top.as_ref() {
+            if args.json {
+                top.write_json(&mut stdout)?;
+            } else {
+                top.write_text(&mut stdout)?;
+            }
+            stdout.flush()?;
+            write_grep_stats(args.stats_json.as_ref(), &stats)?;
+            return grep_exit(top.total_matches as usize);
+        }
         write_grep_stats(args.stats_json.as_ref(), &stats)?;
         return grep_exit(matches);
     }
@@ -714,7 +938,19 @@ pub fn run_grep(args: GrepArgs) -> Result<()> {
             &options,
             &mut stdout,
             &mut stats,
+            top.as_mut(),
         )?;
+    }
+
+    if let Some(top) = top.as_ref() {
+        if args.json {
+            top.write_json(&mut stdout)?;
+        } else {
+            top.write_text(&mut stdout)?;
+        }
+        stdout.flush()?;
+        write_grep_stats(args.stats_json.as_ref(), &stats)?;
+        return grep_exit(top.total_matches as usize);
     }
 
     stdout.flush()?;
@@ -745,6 +981,7 @@ fn grep_one(
     options: &GrepOptions,
     writer: &mut dyn Write,
     stats: &mut GrepStats,
+    mut top: Option<&mut TopAggregator>,
 ) -> Result<usize> {
     let mut reader = ZlgReader::new(BufReader::new(input))?;
     stats.files += 1;
@@ -777,6 +1014,7 @@ fn grep_one(
                 options,
                 writer,
                 remaining,
+                top.as_deref_mut(),
             )?;
             stats.add_match_counters(counters);
             stats.chunks_decoded += 1;
@@ -801,6 +1039,7 @@ fn grep_one(
                 options,
                 writer,
                 remaining,
+                top.as_deref_mut(),
             )?;
             stats.add_match_counters(counters);
             chunk_matches
@@ -811,7 +1050,7 @@ fn grep_one(
             match_count += chunk_result;
             stats.matching_lines += chunk_result as u64;
 
-            if options.files_with_matches
+            if options.paths
                 || options.max_count.is_some_and(|limit| match_count >= limit)
             {
                 break;
@@ -819,7 +1058,7 @@ fn grep_one(
         }
     }
 
-    if options.files_with_matches && file_has_match {
+    if options.paths && file_has_match {
         if let Some(path) = path {
             writeln!(writer, "{}", path.display())?;
         }
@@ -843,6 +1082,7 @@ fn grep_streaming_chunk(
     options: &GrepOptions,
     writer: &mut dyn Write,
     max_matches: Option<usize>,
+    mut top: Option<&mut TopAggregator>,
 ) -> Result<(usize, StreamDecodeOutcome, MatchCounters)> {
     let mut matches = 0usize;
     let mut counters = MatchCounters::default();
@@ -861,18 +1101,22 @@ fn grep_streaming_chunk(
 
             matches += 1;
 
-            if !options.count && !options.files_with_matches {
-                if options.only_matching && !options.invert_match {
+            if !options.count && !options.paths {
+                if options.extract && !options.invert_match {
                     for item in matcher.find_matches(line)? {
-                        write_prefix(
-                            writer,
-                            path,
-                            show_filename,
-                            options.line_number,
-                            line_number,
-                        )?;
-                        writer.write_all(&item)?;
-                        writer.write_all(b"\n")?;
+                        if let Some(top) = top.as_deref_mut() {
+                            top.add(&item)?;
+                        } else {
+                            write_prefix(
+                                writer,
+                                path,
+                                show_filename,
+                                options.line_number,
+                                line_number,
+                            )?;
+                            writer.write_all(&item)?;
+                            writer.write_all(b"\n")?;
+                        }
                     }
                 } else {
                     write_prefix(
@@ -887,7 +1131,7 @@ fn grep_streaming_chunk(
                 }
             }
 
-            if options.files_with_matches || max_matches.is_some_and(|limit| matches >= limit) {
+            if options.paths || max_matches.is_some_and(|limit| matches >= limit) {
                 return Ok(false);
             }
         }
@@ -906,6 +1150,7 @@ fn grep_decoded_chunk(
     options: &GrepOptions,
     writer: &mut dyn Write,
     max_matches: Option<usize>,
+    mut top: Option<&mut TopAggregator>,
 ) -> Result<(usize, MatchCounters)> {
     let mut matches = 0usize;
     let mut counters = MatchCounters::default();
@@ -926,18 +1171,22 @@ fn grep_decoded_chunk(
 
             matches += 1;
 
-            if !options.count && !options.files_with_matches {
-                if options.only_matching && !options.invert_match {
+            if !options.count && !options.paths {
+                if options.extract && !options.invert_match {
                     for item in matcher.find_matches(line)? {
-                        write_prefix(
-                            writer,
-                            path,
-                            show_filename,
-                            options.line_number,
-                            line_number,
-                        )?;
-                        writer.write_all(&item)?;
-                        writer.write_all(b"\n")?;
+                        if let Some(top) = top.as_deref_mut() {
+                            top.add(&item)?;
+                        } else {
+                            write_prefix(
+                                writer,
+                                path,
+                                show_filename,
+                                options.line_number,
+                                line_number,
+                            )?;
+                            writer.write_all(&item)?;
+                            writer.write_all(b"\n")?;
+                        }
                     }
                 } else {
                     write_prefix(
@@ -1486,6 +1735,42 @@ fn print_stat_row(label: &str, value: String) {
     println!("  {label:<28} {value}");
 }
 
+fn print_report_row(writer: &mut dyn Write, label: &str, value: &str) -> Result<()> {
+    writeln!(writer, "{label:<18} {value}")?;
+    Ok(())
+}
+
+fn display_match_value(value: &[u8]) -> String {
+    let mut out = String::new();
+    for byte in value {
+        match *byte {
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7e => out.push(*byte as char),
+            _ => out.push_str(&format!("\\x{byte:02x}")),
+        }
+    }
+    out
+}
+
+fn json_escape(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn format_count(value: u64) -> String {
     let raw = value.to_string();
     let mut out = String::new();
@@ -1708,12 +1993,45 @@ mod tests {
         assert!(help.contains("--fixed"));
         assert!(help.contains("-p"));
         assert!(help.contains("--pcre2"));
+        assert!(help.contains("-e"));
+        assert!(help.contains("--extract"));
+        assert!(help.contains("-t"));
+        assert!(help.contains("--top"));
+        assert!(help.contains("-g"));
+        assert!(help.contains("--paths"));
+        assert!(help.contains("--limit"));
+        assert!(help.contains("--cap"));
+        assert!(help.contains("--truncate"));
         assert!(help.contains("--head"));
         assert!(help.contains("--strict"));
+        assert!(!help.contains("--only-matching"));
+        assert!(!help.contains("--files-with-matches"));
         assert!(!help.contains("--max-count"));
+        assert!(!help.contains("-o,"));
         assert!(!help.contains("-P,"));
         assert!(!help.contains("-F,"));
         assert!(!help.contains("--stats-json"));
+    }
+
+    #[test]
+    fn top_aggregation_counts_and_truncates_values() {
+        let mut top = TopAggregator::new("status=[a-z]+", 10, 10, 8);
+        top.add(b"status=failed").unwrap();
+        top.add(b"status=failed").unwrap();
+        top.add(b"status=denied").unwrap();
+        let rows = top.rows();
+        assert_eq!(top.total_matches, 3);
+        assert_eq!(rows[0].count, 2);
+        assert_eq!(rows[0].value, b"status=f".to_vec());
+        assert!(rows[0].truncated);
+    }
+
+    #[test]
+    fn top_aggregation_rejects_cap_overflow() {
+        let mut top = TopAggregator::new("[a-z]+", 10, 1, 100);
+        top.add(b"alpha").unwrap();
+        let err = top.add(b"beta").unwrap_err();
+        assert!(err.to_string().contains("--cap=1"));
     }
 
     #[test]

@@ -5,7 +5,7 @@ Phase 2f is a small safety pass layered on top of the Phase 2e option and benchm
 ## Goals
 
 1. Refuse accidental output overwrite by default.
-2. Add long-only `--force` for intentional replacement.
+2. Add `-y`, `--force` for intentional replacement.
 3. Keep `-f` reserved for `zlg grep --fixed`.
 4. Strengthen smoke coverage for overwrite behavior.
 5. Strengthen smoke coverage for invalid archive rejection.
@@ -22,7 +22,7 @@ zlg cat -o <path>
 zlg decompress -o <path>
 ```
 
-The `--force` option is long-only. This avoids ambiguity with `zlg grep -f`, which means fixed-string search.
+The `--force` option uses `-y, --force`. This avoids ambiguity with `zlg grep -f`, which means fixed-string search.
 
 ## Smoke checks
 

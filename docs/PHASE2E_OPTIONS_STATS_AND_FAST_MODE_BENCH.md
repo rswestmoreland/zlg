@@ -98,7 +98,7 @@ The Phase 2e bench should fail rather than silently producing blank CPU/RSS fiel
 
 ## Additional pre-validation safety work
 
-Before the next Codex validation pass, the prep package also adds long-only `--force` output overwrite safety. This is intentionally separate from the grep `-f` fixed-string option.
+Before the next Codex validation pass, the prep package also adds `-y`, `--force` output overwrite safety. This is intentionally separate from the grep `-f` fixed-string option.
 
 Expected behavior:
 

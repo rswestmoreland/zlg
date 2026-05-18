@@ -60,7 +60,14 @@ grep -q -- '--head' "$workdir/grep_help.txt"
 grep -q -- '--fixed' "$workdir/grep_help.txt"
 grep -q -- '--pcre2' "$workdir/grep_help.txt"
 grep -q -- '--strict' "$workdir/grep_help.txt"
-if grep -q -- '--max-count\|-P,\|-F,\|--stats-json' "$workdir/grep_help.txt"; then
+grep -q -- '--extract' "$workdir/grep_help.txt"
+grep -q -- '--top' "$workdir/grep_help.txt"
+grep -q -- '--limit' "$workdir/grep_help.txt"
+grep -q -- '--cap' "$workdir/grep_help.txt"
+grep -q -- '--truncate' "$workdir/grep_help.txt"
+grep -q -- '--json' "$workdir/grep_help.txt"
+grep -q -- '--paths' "$workdir/grep_help.txt"
+if grep -q -- '--max-count\|--only-matching\|--files-with-matches\|-P,\|-F,\|-o,\|--stats-json' "$workdir/grep_help.txt"; then
   echo "grep help exposed removed or hidden options" >&2
   exit 1
 fi
@@ -128,7 +135,22 @@ for mode in none fast standard best; do
   $zlg tail -n 0 "$archive" > "$workdir/${mode}_tail_zero.txt"
   test ! -s "$workdir/${mode}_tail_zero.txt"
   $zlg grep -p '(?<=alpha )[a-z]+' "$archive" >/dev/null
-  $zlg grep -o -p '(?<=alpha )[a-z]+' "$archive" >/dev/null
+  $zlg grep -e -p '(?<=alpha )[a-z]+' "$archive" >/dev/null
+  $zlg grep -pte '(?<=alpha )[a-z]+' "$archive" > "$workdir/${mode}_top.txt"
+  grep -q 'Top extracted matches' "$workdir/${mode}_top.txt"
+  grep -q 'one' "$workdir/${mode}_top.txt"
+  $zlg grep -pte --json '(?<=alpha )[a-z]+' "$archive" > "$workdir/${mode}_top.json"
+  grep -q '"total_matches"' "$workdir/${mode}_top.json"
+  if $zlg grep --top alpha "$archive" >/dev/null 2>&1; then
+    echo "expected --top without --extract to fail" >&2
+    exit 1
+  fi
+  if $zlg grep -te --cap 1 '[a-z]+' "$archive" >/dev/null 2>&1; then
+    echo "expected --top to fail when --cap is exceeded" >&2
+    exit 1
+  fi
+  $zlg grep -te --truncate 3 '[a-z]+' "$archive" > "$workdir/${mode}_top_truncated.txt"
+  grep -q '\[truncated\]' "$workdir/${mode}_top_truncated.txt"
   if $zlg grep -f alpha -p alpha "$archive" >/dev/null 2>&1; then
     echo "expected -f and -p conflict to fail" >&2
     exit 1

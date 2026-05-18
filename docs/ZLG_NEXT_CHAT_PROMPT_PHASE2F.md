@@ -11,7 +11,7 @@ Current prep includes:
 - screenshot-friendly `zlg stats` text output
 - expanded `zlg stats --json`
 - fast-vs-standard performance smoke benchmark
-- output overwrite safety using long-only `--force`
+- output overwrite safety using `-y`, `--force`
 - stronger Phase 2 CLI smoke checks for head/tail/stats/force/invalid archive behavior
 
 Locked core:

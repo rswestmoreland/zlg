@@ -17,13 +17,13 @@ regex_out="$(cargo run --quiet -- grep 'error|failed' "$zlg_file")"
 expected_regex=$'error key="abc"\nfailed password'
 [[ "$regex_out" == "$expected_regex" ]]
 
-only_out="$(cargo run --quiet -- grep -o 'key="[^"]+"' "$zlg_file")"
+only_out="$(cargo run --quiet -- grep -e 'key="[^"]+"' "$zlg_file")"
 [[ "$only_out" == 'key="abc"' ]]
 
 line_out="$(cargo run --quiet -- grep -n 'failed password' "$zlg_file")"
 [[ "$line_out" == '3:failed password' ]]
 
-fancy_out="$(cargo run --quiet -- grep -o -p '(?<=key=")[^"]+' "$zlg_file")"
+fancy_out="$(cargo run --quiet -- grep -e -p '(?<=key=")[^"]+' "$zlg_file")"
 [[ "$fancy_out" == 'abc' ]]
 
 fixed_out="$(cargo run --quiet -- grep -f 'alpha' "$zlg_file")"

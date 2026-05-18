@@ -10,7 +10,7 @@ Current Phase 2m design:
 - There is no `-o` or `--output` option.
 - If output is omitted, remove the last extension and add `.zlg`.
 - Reuse `--mode <none|fast|standard|best>`.
-- Reuse long-only `--force`.
+- Reuse `-y`, `--force`.
 - `.zst` uses the internal zstd decoder already present in zlg.
 - `.gz` uses external `gzip -dc`.
 - `.bz2` uses external `bzip2 -dc`.

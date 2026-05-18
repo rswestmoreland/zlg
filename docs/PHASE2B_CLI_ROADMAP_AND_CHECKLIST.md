@@ -89,7 +89,7 @@ Checklist:
 - [x] `zlg test`
 - [x] `zlg info`
 - [x] `zlg stats`
-- [ ] `zlg top`
+- [ ] `zlg grep --extract --top`
 - [x] `zlg convert`
 
 Open for later discussion:
@@ -159,8 +159,8 @@ zlg compress app.log --mode none
 Options:
 
 - [x] `-o`, `--output <path>`
-- [x] `--mode <none|fast|standard|best>`
-- [ ] `-f`, `--force`
+- [x] `-m`, `--mode <none|fast|standard|best>`
+- [x] `-y`, `--force`
 - [ ] `--stats`
 - [ ] `--json` with stats, if implemented
 - [ ] `-q`, `--quiet`
@@ -188,7 +188,7 @@ Options:
 
 - [ ] `-o`, `--output <path>`
 - [ ] `-c`, `--stdout`
-- [ ] `-f`, `--force`
+- [x] `-y`, `--force`
 - [ ] `-q`, `--quiet`
 
 ### cat
@@ -218,7 +218,7 @@ zlg grep "error" app.zlg
 zlg grep -i "failed login" auth.zlg
 zlg grep -f "literal text" app.zlg
 zlg grep -p '(?<=user=)[^ ]+' auth.zlg
-zlg grep -o 'src_ip=[0-9.]+' firewall.zlg
+zlg grep -e 'src_ip=[0-9.]+' firewall.zlg
 zlg grep --head 10 "error" app.zlg
 ```
 
@@ -227,10 +227,10 @@ Options:
 - [x] `-i`, `--ignore-case`
 - [x] `-f`, `--fixed`
 - [x] `-p`, `--pcre2`
-- [x] `-o`, `--only-matching`
+- [x] `-e`, `--extract`
 - [x] `-n`, `--line-number`
 - [x] `-c`, `--count`
-- [x] `-l`, `--files-with-matches`
+- [x] `-g`, `--paths`
 - [ ] `-q`, `--quiet`
 - [x] `--head <n>`
 
@@ -314,8 +314,8 @@ Purpose: search/extract/count/sort top values.
 Examples:
 
 ```text
-zlg top auth.zlg --where "failed login" --extract 'user=([^ ]+)' --limit 10
-zlg top firewall.zlg --extract 'src_ip=([0-9.]+)' --limit 10
+zlg grep --extract --top auth.zlg --where "failed login" --extract 'user=([^ ]+)' --limit 10
+zlg grep --extract --top firewall.zlg --extract 'src_ip=([0-9.]+)' --limit 10
 ```
 
 Options:
@@ -344,8 +344,8 @@ Initial design:
 Options:
 
 - [x] `-o`, `--output <path>`
-- [x] `--mode <none|fast|standard|best>`
-- [ ] `-f`, `--force`
+- [x] `-m`, `--mode <none|fast|standard|best>`
+- [x] `-y`, `--force`
 - [ ] `--from <plain|gz|zst>`
 - [ ] `--stats`
 - [ ] `--json`

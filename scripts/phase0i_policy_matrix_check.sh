@@ -66,7 +66,7 @@ for policy in "${policies[@]}"; do
     fancy_expected="$tmp_dir/fancy.${policy}.expected"
     fancy_actual="$tmp_dir/fancy.${policy}.actual"
     grep -oP '(?<=key=")[^"]+' "$input" > "$fancy_expected" || true
-    "$zlg" grep -o -p '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual" || true
+    "$zlg" grep -e -p '(?<=key=")[^"]+' "$zlg_file" > "$fancy_actual" || true
     diff -u "$fancy_expected" "$fancy_actual"
 
     echo "phase0i policy matrix ok: $policy"

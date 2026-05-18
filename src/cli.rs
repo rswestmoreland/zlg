@@ -414,9 +414,17 @@ fn run_convert_to_writer(
                 summary_mode,
                 build_profile,
             );
-            let wait_result = child.wait();
-            write_result?;
-            let status = wait_result.with_context(|| format!("failed to wait for {program}"))?;
+            if let Err(error) = write_result {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error).with_context(|| {
+                    format!("failed to convert decompressed {} stream", program)
+                });
+            }
+
+            let status = child
+                .wait()
+                .with_context(|| format!("failed to wait for {program}"))?;
             if !status.success() {
                 return Err(anyhow!(
                     "{} failed while decompressing {}",
@@ -2122,5 +2130,48 @@ mod tests {
     fn convert_rejects_plain_input_extensions() {
         assert!(compressed_input_kind(Path::new("app.log")).is_err());
         assert!(compressed_input_kind(Path::new("app")).is_err());
+    }
+
+    #[test]
+    fn convert_zst_roundtrip_uses_internal_decoder() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "zlg_convert_zst_internal_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let result = (|| -> Result<()> {
+            let input = b"alpha one\nbeta two\nalpha three\nomega four\n";
+            let zst_path = dir.join("sample.log.zst");
+            let output_path = dir.join("sample.log.zlg");
+            let zst_bytes = zstd::stream::encode_all(&input[..], 3)
+                .context("failed to create test zst bytes")?;
+            std::fs::write(&zst_path, zst_bytes).context("failed to write test zst fixture")?;
+
+            run_convert(ConvertArgs {
+                input: zst_path,
+                output: Some(output_path.clone()),
+                mode: CompressionModeArg::Fast,
+                force: false,
+            })?;
+
+            let mut decoded = Vec::new();
+            let file = File::open(&output_path).context("failed to open converted archive")?;
+            let mut reader = ZlgReader::new(BufReader::new(file))?;
+            while let Some(raw_chunk) = reader.next_raw_chunk()? {
+                let chunk = raw_chunk.decode()?;
+                decoded.extend_from_slice(&chunk.data);
+            }
+            assert_eq!(decoded, input);
+            Ok(())
+        })();
+
+        let _ = std::fs::remove_dir_all(&dir);
+        result.unwrap();
     }
 }

@@ -172,3 +172,8 @@ memchr line splitting
 - `zlg info` and `zlg stats` should use sectioned, screenshot-friendly text output plus JSON for scripts.
 - Benchmarks should include repeated median support before default-mode decisions.
 - Head/tail smoke coverage should include zero lines, over-large counts, empty input, single-line input, and final-line-without-newline cases.
+
+
+## Future grep pipeline cleanup
+
+Phase 2n intentionally prioritized validated behavior over internal refactor. A future cleanup should introduce a `GrepContext` or `GrepPipelineContext` for the grep execution path so helper functions do not keep growing argument lists. The existing `GrepOptions` remains the user-selected option set; the future context should group runtime state.

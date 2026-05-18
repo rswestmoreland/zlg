@@ -89,7 +89,7 @@ Checklist:
 - [x] `zlg test`
 - [x] `zlg info`
 - [x] `zlg stats`
-- [ ] `zlg grep --extract --top`
+- [x] `zlg grep --extract --top`
 - [x] `zlg convert`
 
 Open for later discussion:
@@ -433,3 +433,8 @@ Do not commit:
 ## Phase 2 implementation status update
 
 The current Phase 2m prep adds helper-based `convert` for already-compressed `.zst`, `.gz`, `.bz2`, and `.xz` inputs. `top` remains deferred. The file format remains experimental and should not be frozen in this phase.
+
+
+## Future cleanup items
+
+- [ ] Refactor grep pipeline helper signatures into a small `GrepContext` or `GrepPipelineContext` so functions such as `grep_one`, `grep_streaming_chunk`, and `grep_decoded_chunk` do not keep growing argument lists as extract/top/strict/search behavior evolves. This should be behavior-preserving and should not change the locked production core.

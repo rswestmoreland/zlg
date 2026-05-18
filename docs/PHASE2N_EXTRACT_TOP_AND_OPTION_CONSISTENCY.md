@@ -153,3 +153,8 @@ Do not implement:
 - parser behavior
 - field extraction semantics
 - `--left`, `--right`, or `--trim`
+
+
+## Future cleanup
+
+Phase 2n increased grep pipeline complexity. The current code has scoped clippy allows on a few grep helper functions for argument count. A later cleanup should introduce a `GrepContext` or `GrepPipelineContext` to group runtime pipeline state and keep helper signatures small. This should be a behavior-preserving refactor after Phase 2 closure.

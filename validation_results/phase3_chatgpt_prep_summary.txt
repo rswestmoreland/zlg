@@ -1,0 +1,17 @@
+Phase 3 release-readiness prep created by ChatGPT.
+
+Scope:
+- Added command reference, install guide, release checklist, active roadmap, man-page draft, and shell completion notes.
+- Added release-readiness audit script and release artifact dry-run script.
+- Added Cargo.toml readme metadata.
+- Updated README with Phase 3 documentation entry points.
+- Added next-chat validation prompt.
+
+Sandbox checks planned/performed outside Rust:
+- Python syntax for phase3_doc_audit.py
+- bash syntax for Phase 3 scripts
+- ASCII scan
+- path-length scan
+- zip integrity
+
+Rust/Cargo validation has not been run in this sandbox.

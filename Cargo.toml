@@ -5,7 +5,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Richard S. Westmoreland <dev@rswestmore.land>"]
 description = "Searchable zstd-backed log compression CLI"
-repository = "https://example.invalid/zlg"
+readme = "README.md"
+repository = "https://github.com/rswestmoreland/zlg"
 
 [dependencies]
 anyhow = "1.0"

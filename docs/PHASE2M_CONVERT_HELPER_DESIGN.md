@@ -43,13 +43,17 @@ Helpers are invoked directly with `std::process::Command`; no shell is used.
 
 ## Missing helper behavior
 
-If a helper is missing, `zlg convert` should fail clearly instead of silently falling back or producing partial output.
+If a helper is missing, `zlg convert` should fail clearly instead of silently falling back or producing partial output. `.zst` is not a helper path and does not require the external `zstd` command.
 
 Example:
 
 ```text
 app.log.xz conversion requires the xz command in PATH
 ```
+
+## Failure cleanup
+
+External helper paths write to a temporary `.zlg` path first. If zlg fails while consuming helper output, it kills/waits for the helper and removes the temporary output before returning the error. The final output path is only installed after a successful conversion.
 
 ## Why not embed codecs yet
 
@@ -67,4 +71,4 @@ Later work can measure embedded decoder overhead for:
 - brotli/snappy/lz4 conversion
 - embedded gzip/bzip2/xz decoders
 - shell-based helper invocation
-- automatic delete/cleanup of partial outputs on helper failure
+- additional helper formats beyond gzip, bzip2, and xz

@@ -95,7 +95,7 @@ if $zlg convert "$input" "$workdir/plain.zlg" >/dev/null 2>&1; then
 fi
 record "plain" "none" "ok" "plain input rejected; use compress"
 
-run_case "zst" "zstd" "zst"
+record "zst" "internal" "ok" "covered by cargo test using internal zstd decoder"
 run_case "gz" "gzip" "gz"
 run_case "bz2" "bzip2" "bz2"
 run_case "xz" "xz" "xz"

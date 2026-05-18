@@ -1,228 +1,288 @@
 # zlg
 
-`zlg` is a single-binary Linux CLI utility and experimental `.zlg` file format for compressing, decompressing, catting, and searching plaintext logs.
+`zlg` (pronounced "z-log") is a Linux command-line tool for compressed log archives that can still be searched quickly. It stores logs in `.zlg` files using zstd-backed chunks plus compact per-chunk search metadata, so common log workflows such as `grep`, `head`, `tail`, `stats`, and extraction-based top counts can work without fully decompressing the archive first.
 
-The selected production core is locked. The Phase 2 CLI pass has been validated through commit 6eab4a3, Phase 2c through commit d1179fc, Phase 2d through commit 2c5b8c8, Phase 2e/2g through commit 3623975, and Phase 2h-2l through commit 260ca74. The current pre-validation package starts Phase 2m with helper-based `zlg convert` support for already-compressed inputs. The standalone `top` subcommand remains deferred; Phase 2n adds `grep --extract --top` for optimized extraction aggregation.
+The name comes from "zstd log" / "z-log". The command is `zlg`; the archive extension is `.zlg`.
 
-## Current status
+> Status: pre-1.0. The CLI is usable, but the `.zlg` file format is still experimental and should not be treated as frozen yet.
 
-This repository is still pre-1.0. The core compression/search stack has been validated and hardened, and the public CLI is aligned with the Phase 2 lowercase option design. The file format remains experimental and must not be frozen yet.
+## Why zlg?
 
-## Locked production core
+Traditional compressed logs are small, but searching them often means streaming the whole compressed file through `zgrep` or `gzip -dc | grep`. `zlg` keeps the storage benefit of compression while adding chunk summaries and a footer directory so it can skip irrelevant chunks, seek efficiently for `tail`, and report archive layout stats quickly.
 
-```text
-fixed-lines8192 with 8 MiB byte cap
-+ mesh-bigram ZBM1 v2
-+ zstd::bulk::Compressor
-+ combined-bitset-seen
-+ current reserve behavior
-+ streaming grep
-+ summary-first skip
-+ memchr line splitting
-+ Rust regex default
-+ PCRE2 for pcre2 mode
-+ literal prefiltering
-+ positive-lookbehind fast path
-+ head-style early stop
-```
+In the current benchmark snapshot, `zlg` showed three practical advantages:
 
-Compression modes are the user-facing compression choices:
+- **Smaller than gzip** in tested log corpora.
+- **Much faster than zgrep** for compressed search.
+- **Fast head/tail on compressed archives** because zlg can seek by chunk metadata instead of streaming the entire gzip file.
 
-```text
-none     = store payloads uncompressed inside .zlg chunks
-fast     = zstd level 3
-standard = zstd level 6
-best     = zstd level 8
-```
+## Quick examples
 
-The default compression mode is `standard`.
-
-## Locked CLI design decisions
-
-- Use subcommands.
-- Use lowercase short options only.
-- Use lowercase long options only.
-- Do not carry uppercase feature flags such as `-P` or `-F`.
-- Do not expose the full numeric compression-level range in the normal CLI.
-- Use `--mode`, not `--preset`.
-- Use `-p`, `--pcre2` for PCRE2 mode.
-- Include `head` and `tail` as first-class commands.
-- Store and use line-count and byte-count metadata so file-backed `tail`, `info`, and `stats` can be efficient.
-- Keep `stats` as a pleasant zlg-specific report, with `--json` for scripts. Do not add a separate `wc` command.
-- Refuse to overwrite output files by default; use `-y, --force` when replacement is intentional.
-- Keep sort/uniq design open, likely through top/extract/count/sort workflows first.
-- Keep conversion support lean. `zlg convert` is for already-compressed inputs; plain logs should use `zlg compress`. Use internal `.zst` decoding and helper-based `.gz`, `.bz2`, and `.xz` decoding first to avoid growing the binary with new codec crates.
-
-## Planned command surface
-
-```text
-zlg help
-zlg version
-zlg compress
-zlg decompress
-zlg cat
-zlg grep
-zlg head
-zlg tail
-zlg test
-zlg info
-zlg stats
-zlg convert
-```
-
-`sort` and `uniq` remain design topics. They should not become broad clones of Unix `sort` and `uniq` without a clear zlg-specific purpose.
-
-## Current implemented commands
-
-Implemented and validated in Phase 2:
-
-- `zlg help` through the normal clap help command path
-- `zlg version`
-- `zlg compress` with `--mode <none|fast|standard|best>` and `-y, --force` for intentional overwrite
-- `zlg decompress` with `-y, --force` for intentional overwrite
-- `zlg cat` with `-y, --force` for intentional overwrite
-- `zlg grep` with lowercase short/long options including `-f/--fixed`, `-p/--pcre2`, `-e/--extract`, `-t/--top`, `-g/--paths`, `-m/--head`, and opt-in `-s/--strict`
-- `zlg head`
-- `zlg tail` with a seekable metadata path for file inputs
-- `zlg test` with readable text output, `--json`, and `--quiet`
-- `zlg info` using metadata for file inputs
-- `zlg stats` using metadata for file inputs, with readable text output and JSON output
-- `zlg convert` for already-compressed `.zst`, `.gz`, `.bz2`, and `.xz` inputs
-- `zlg grep -e/--extract -t/--top` for counting extracted matches without a shell pipeline
-
-Deferred command design topics:
-
-- standalone `zlg top` remains deferred; first support is `zlg grep --extract --top`
-- parser-like top lines/tokens/fields are out of scope
-- sort/uniq-like workflows remain design topics
-
-
-
-## Extract and top matches
-
-`zlg grep` supports extraction and top aggregation without requiring a shell pipeline. This keeps the optimized zlg search path, including summary-first chunk skipping, then counts extracted matches internally.
-
-```text
-zlg grep -e 'status=[a-z]+' app.zlg
-zlg grep -te 'status=[a-z]+' app.zlg
-zlg grep -pte '(?<=status=)[a-z]+' app.zlg
-zlg grep -te --limit 10 --cap 100000 --truncate 1000 'user=[^ ]+' auth.zlg
-zlg grep -te --json 'src_ip=[0-9.]+' firewall.zlg
-```
-
-Top output uses `Rank`, `Count`, `Percent`, and `Value`. `--top` requires `-e, --extract`. The safety cap defaults to 100,000 distinct extracted values; if the cap is reached, zlg exits with an error and emits no top results because the output would be incomplete. Extracted values are truncated to 1,000 bytes by default before counting/display.
-
-Use single quotes for static shell patterns and double quotes when shell variable interpolation is intended:
+Compress a log:
 
 ```bash
-zlg grep -te 'status=[a-z]+' app.zlg
-STATUS='failed|denied'
-zlg grep -pte "status=(${STATUS})" app.zlg
+zlg compress app.log -o app.log.zlg
+zlg compress app.log -o app.log.zlg -m fast
 ```
 
-## Convert compressed logs
+Search an archive:
 
-`zlg convert` is a convenience bridge for already-compressed log files. Plain logs should use `zlg compress`.
+```bash
+zlg grep 'status=failed' app.log.zlg
+zlg grep -f 'literal needle' app.log.zlg
+zlg grep -p '(?<=status=)[a-z]+' app.log.zlg
+```
 
-```text
+Extract and rank matching values without a shell pipeline:
+
+```bash
+zlg grep -te 'status=[a-z]+' app.log.zlg
+zlg grep -pte '(?<=src_ip=)[0-9.]+' firewall.zlg
+zlg grep -te --limit 10 --cap 100000 --truncate 1000 'user=[^ ]+' auth.zlg
+zlg grep -te --json 'status=[a-z]+' app.log.zlg
+```
+
+Inspect an archive:
+
+```bash
+zlg stats app.log.zlg
+zlg info app.log.zlg
+zlg test app.log.zlg
+```
+
+Read the beginning or end of a compressed archive:
+
+```bash
+zlg head -n 20 app.log.zlg
+zlg tail -n 100 app.log.zlg
+```
+
+Convert already-compressed logs into `.zlg`:
+
+```bash
 zlg convert app.log.zst
 zlg convert app.log.gz
 zlg convert app.log.bz2
 zlg convert app.log.xz
-zlg convert app.log.gz app-archive.zlg --mode fast
-zlg convert app.log.xz app-archive.zlg --force
+zlg convert app.log.gz app-archive.zlg -m fast
 ```
 
-If the output path is omitted, zlg removes the last extension and adds `.zlg`, for example `app.log.gz` becomes `app.log.zlg`. The command intentionally has no `-o` or `--output` option.
+Plain logs should use `zlg compress`; `zlg convert` is for already-compressed inputs.
 
-Decoder strategy:
+## How the file format works
 
-- `.zst` uses the existing internal zstd dependency.
-- `.gz` uses `gzip -dc` from `PATH`.
-- `.bz2` uses `bzip2 -dc` from `PATH`.
-- `.xz` uses `xz -dc` from `PATH`.
+A `.zlg` file is a sequence of independent, line-aligned chunks followed by a seekable directory and footer.
 
-Helpers are invoked directly without a shell. Missing helpers produce a clear unsupported-in-this-environment error. This keeps the zlg binary lean while supporting common Linux compressed log formats.
+```text
++------------------------------+
+| Global header                |
++------------------------------+
+| Chunk 0 header               |
+|   line range and byte counts |
+|   CRC of uncompressed bytes  |
+|   compression mode           |
++------------------------------+
+| Chunk 0 ZBM1 summary         |  compact mesh-bigram search summary
++------------------------------+
+| Chunk 0 payload              |  zstd-compressed or stored bytes
++------------------------------+
+| Chunk 1 header               |
+| Chunk 1 ZBM1 summary         |
+| Chunk 1 payload              |
++------------------------------+
+| ...                          |
++------------------------------+
+| Directory                    |  chunk offsets, lengths, line counts
++------------------------------+
+| Footer                       |  totals and directory location
++------------------------------+
+```
 
-## Author
+The default chunk policy is currently `fixed-lines8192-cap8m`: up to 8,192 lines per chunk, with an 8 MiB byte cap. Each chunk has an independent payload and a compact ZBM1 mesh-bigram summary. During search, zlg derives selectors from the pattern, checks chunk summaries first, and decodes only candidate chunks. This is what lets a deep "needle in a haystack" search skip most of the archive.
 
-Richard S. Westmoreland
+The footer directory stores chunk locations and counts, which makes commands like `tail`, `info`, and `stats` efficient on file-backed archives.
 
-dev@rswestmore.land
+## Compression modes
+
+```text
+none      store payloads uncompressed inside .zlg chunks
+fast      zstd level 3
+standard  zstd level 6, current default
+best      zstd level 8
+```
+
+Use `-m, --mode` on commands that create `.zlg` archives.
+
+`fast` is a strong candidate for operational ingest workloads. `standard` remains the default for now because it gives better compression. The mode names and default may change before a stable format release.
+
+## Search, extract, and top
+
+`zlg grep` uses the same archive-aware search path for normal search, extraction, and top aggregation.
+
+Useful grep options:
+
+```text
+-f, --fixed                  fixed-string search
+-p, --pcre2                  PCRE2 regex mode
+-e, --extract                print extracted matches
+-t, --top                    count and rank extracted matches
+-l, --limit <n>              top rows to show, default 20
+-a, --cap <n>                distinct extracted-value cap, default 100000
+-r, --truncate <bytes>       truncate extracted values before counting/display
+-j, --json                   JSON output for top aggregation
+-g, --paths                  print only matching input paths
+-m, --head <n>               stop after n matching lines
+-s, --strict                 verify candidate chunks before output
+```
+
+`--top` requires `--extract`. If `--cap` is exceeded, zlg exits with an error and emits no top results because the result would be incomplete. Extracted values are truncated to 1,000 bytes by default before counting and display.
+
+Top output uses `Rank`, `Count`, `Percent`, and `Value`:
+
+```text
+Top extracted matches
+=====================
+
+Pattern           status=[a-z]+
+Total matches     80,000
+Unique values          3
+Limit                 20
+Cap              100,000
+Truncate bytes     1,000
+
+Rank  Count       Percent  Value
+1         40,000   50.00%  status=failed
+2         30,000   37.50%  status=denied
+3         10,000   12.50%  status=timeout
+```
+
+Shell quoting matters. Use single quotes for static patterns and double quotes when you want the shell to expand variables:
+
+```bash
+zlg grep -te 'status=[a-z]+' app.log.zlg
+STATUS='failed|denied'
+zlg grep -pte "status=(${STATUS})" app.log.zlg
+```
+
+## Stats example
+
+`zlg stats` is intended to be readable in a terminal screenshot, while `zlg stats -j` is intended for scripts.
+
+```text
+zlg archive stats
+=================
+
+Content
+  Lines                        120,000
+  Uncompressed bytes           14.97 MiB
+  Chunks                       15
+  Avg lines/chunk              8000.0
+  Avg raw bytes/chunk          1.00 MiB
+
+Storage
+  Archive bytes                945.14 KiB
+  Payload bytes                802.27 KiB
+  Payload share                84.88%
+  Summary bytes                139.70 KiB
+  Summary share                14.78%
+  Directory bytes              1.02 KiB
+  Directory share              0.11%
+  Metadata share               14.89%
+  Compression ratio            16.22:1
+  Archive/raw size             6.17%
+
+Format
+  Compression mode             standard
+  Chunk policy                 fixed-lines8192-cap8m
+  Format version               1
+  Metadata source              seekable
+```
+
+## Benchmark snapshot
+
+These results come from the repeated-median benchmark artifacts in `validation_results/phase2i_repeated_median_smoke.md`. They are intended as a smoke-test snapshot, not a universal guarantee. Absolute timings vary by CPU, storage, kernel, and host load.
+
+### Build and storage
+
+| Scenario | Backend | Archive bytes | Median build time |
+|---|---:|---:|---:|
+| Repeated regex log | gzip -6 | 1,233,402 | 0.212365s |
+| Repeated regex log | zlg fast | 1,185,857 | 0.131995s |
+| Repeated regex log | zlg standard | 967,824 | 0.242521s |
+| Large needle log | gzip -6 | 14,936,213 | 1.809784s |
+| Large needle log | zlg fast | 14,807,773 | 1.567921s |
+| Large needle log | zlg standard | 12,945,933 | 2.369447s |
+
+### Search
+
+| Scenario | Backend | Median search time | Matches |
+|---|---:|---:|---:|
+| Repeated regex log | plain grep | 0.047857s | 80,000 |
+| Repeated regex log | zgrep | 0.112281s | 80,000 |
+| Repeated regex log | zlg fast | 0.053496s | 80,000 |
+| Repeated regex log | zlg standard | 0.054473s | 80,000 |
+| Large needle log | plain grep | 0.073980s | 1 |
+| Large needle log | zgrep | 0.664595s | 1 |
+| Large needle log | zlg fast | 0.020609s | 1 |
+| Large needle log | zlg standard | 0.019749s | 1 |
+
+On the large needle test, zlg was faster than plain grep because the search metadata let it skip most chunks. On dense-match regex workloads, zlg stayed close to plain grep while searching compressed archives.
+
+### Head and tail on compressed archives
+
+| Scenario | Operation | gzip stream | zlg fast | zlg standard |
+|---|---|---:|---:|---:|
+| Repeated regex log | head | 1.874999s | 0.020026s | 0.020521s |
+| Repeated regex log | tail | 2.066998s | 0.018484s | 0.017699s |
+| Large needle log | head | 1.946713s | 0.020467s | 0.019655s |
+| Large needle log | tail | 2.555441s | 0.010081s | 0.010744s |
+
+## Convert helper behavior
+
+`zlg convert` uses internal zstd support for `.zst` input. For common Linux compressed files, it uses helper programs from `PATH`:
+
+```text
+.gz   gzip -dc
+.bz2  bzip2 -dc
+.xz   xz -dc
+```
+
+Helpers are invoked directly, not through a shell. If a helper is missing, zlg reports that the format is unsupported in the current environment. This keeps the binary lean while covering common compressed log formats.
+
+## Install from source
+
+```bash
+git clone https://github.com/rswestmoreland/zlg.git
+cd zlg
+cargo build --release
+install -Dm755 target/release/zlg "$HOME/.local/bin/zlg"
+```
+
+Check the install:
+
+```bash
+zlg version
+zlg version --long
+```
+
+More install and release notes are in `docs/INSTALL.md` and `docs/RELEASE_CHECKLIST.md`.
+
+## Documentation
+
+- `docs/COMMAND_REFERENCE.md` - command and option reference
+- `docs/INSTALL.md` - install and uninstall notes
+- `docs/ROADMAP.md` - current roadmap
+- `docs/BENCHMARK_MEASUREMENT_RELIABILITY.md` - benchmark measurement notes
+- `docs/man/zlg.1` - draft man page
 
 ## License
 
 Dual licensed under MIT OR Apache-2.0.
 
-See:
+See `LICENSE`, `LICENSE-MIT`, and `LICENSE-APACHE`.
 
-- `LICENSE`
-- `LICENSE-MIT`
-- `LICENSE-APACHE`
+## Author
 
-## Validation baseline
+Richard S. Westmoreland
 
-The Phase 2 CLI validation/fix pass at commit 6eab4a3 passed:
-
-```text
-cargo fmt --check
-cargo check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo build --release
-phase0h smoke
-phase0h correctness
-phase0i policy matrix
-phase0m selector smoke
-phase0i artifact hygiene
-phase2 CLI smoke
-```
-
-## Phase 2c and Phase 2d work
-
-Phase 2c implemented and validated:
-
-- seekable footer/directory metadata reading
-- metadata-backed `tail`, `info`, and `stats` for file inputs
-- help/version/docs alignment
-- a compact performance smoke bench comparing plain `grep`, `zgrep`, and `zlg grep`
-
-Phase 2d implemented and validated:
-
-- reliable CPU/RSS capture using Linux `os.wait4()`
-- larger needle-in-haystack search testing
-- `head` and `tail` comparisons against raw logs and gzip streams
-- stronger output-hash parity checks for head/tail paths
-
-Phase 2e and Phase 2g are validated and Phase 2h-2l prepare the next validation pass:
-
-- screenshot-friendly `zlg stats` text output
-- expanded `zlg stats --json` fields
-- fast-vs-standard performance comparison against gzip and plain log baselines
-- continued search/head/tail/tail_large output parity checks
-- output overwrite safety for `compress`, `cat`, and `decompress`
-- stronger smoke checks for `--force` and invalid archive rejection
-- `zlg test` text/json/quiet output modes
-- file-backed `zlg test` metadata totals checked against decoded totals
-- archive corruption probe for malformed metadata and payload cases
-- `zlg grep --strict` for opt-in candidate-chunk verification before output
-- repeated-median benchmark wrapper for fast-vs-standard results
-- polished `zlg info` layout and expanded component-share `zlg stats` fields
-- stronger `head` and `tail` edge-case smoke coverage
-
-Recommended active documents:
-
-```text
-docs/CLI_DESIGN_DECISIONS_PHASE2.md
-docs/PHASE2C_METADATA_AND_PERF_SMOKE.md
-docs/PHASE2D_BENCH_RELIABILITY_HEAD_TAIL.md
-docs/PHASE2E_OPTIONS_STATS_AND_FAST_MODE_BENCH.md
-docs/BENCHMARK_MEASUREMENT_RELIABILITY.md
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2E.md
-docs/PHASE2F_CLI_SAFETY_AND_HARDENING.md
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2F.md
-docs/PHASE2G_ARCHIVE_HARDENING_AND_TEST_OUTPUT.md
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2G.md
-docs/PHASE2H_TO_2L_FINAL_CLI_MATURITY.md
-docs/ZLG_NEXT_CHAT_PROMPT_PHASE2H_TO_2L.md
-```
+`dev@rswestmore.land`

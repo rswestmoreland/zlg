@@ -1,0 +1,118 @@
+.TH ZLG 1 "May 2026" "zlg 0.1.0" "User Commands"
+.SH NAME
+zlg \- searchable compressed log archive utility
+.SH SYNOPSIS
+.B zlg
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B zlg
+compresses plaintext logs into experimental .zlg archives and searches those archives without fully decompressing every chunk when summaries can skip irrelevant data.
+.PP
+The file format is experimental and pre-1.0.
+.SH COMMANDS
+.TP
+.B version
+Show version information.
+.TP
+.B compress
+Compress a plaintext log into a .zlg archive.
+.TP
+.B decompress
+Decompress a .zlg archive.
+.TP
+.B cat
+Write decompressed archive content to stdout or a file.
+.TP
+.B grep
+Search a .zlg archive.
+.TP
+.B head
+Print the first lines from an archive.
+.TP
+.B tail
+Print the last lines from an archive.
+.TP
+.B test
+Validate archive structure and chunk integrity.
+.TP
+.B info
+Show archive metadata.
+.TP
+.B stats
+Show content, storage, and format statistics.
+.TP
+.B convert
+Convert an already-compressed log into .zlg.
+.SH COMMON OPTIONS
+.TP
+.BR -m ", " --mode " none|fast|standard|best"
+Select compression mode where supported.
+.TP
+.BR -y ", " --force
+Overwrite output files intentionally.
+.TP
+.BR -j ", " --json
+Emit JSON output where supported.
+.SH GREP OPTIONS
+.TP
+.BR -f ", " --fixed
+Use fixed-string search.
+.TP
+.BR -p ", " --pcre2
+Use PCRE2 regex mode.
+.TP
+.BR -e ", " --extract
+Print extracted matches.
+.TP
+.BR -t ", " --top
+Aggregate extracted matches. Requires --extract.
+.TP
+.BR -l ", " --limit " N"
+Limit top output rows.
+.TP
+.BR -a ", " --cap " N"
+Limit distinct extracted values for top aggregation.
+.TP
+.BR -r ", " --truncate " BYTES"
+Truncate extracted values before counting and display.
+.TP
+.BR -g ", " --paths
+Print input paths with at least one match.
+.TP
+.BR -s ", " --strict
+Verify each candidate chunk before emitting output from that chunk.
+.SH CONVERT
+.B zlg convert
+supports already-compressed inputs. Plain logs should use
+.B zlg compress
+instead.
+.PP
+Supported input strategy:
+.TP
+.B .zst
+Uses internal zstd support.
+.TP
+.B .gz
+Uses gzip from PATH.
+.TP
+.B .bz2
+Uses bzip2 from PATH.
+.TP
+.B .xz
+Uses xz from PATH.
+.SH EXAMPLES
+.nf
+zlg compress app.log -o app.log.zlg
+zlg grep -f 'needle' app.log.zlg
+zlg grep -pte '(?<=status=)[a-z]+' app.log.zlg
+zlg tail -n 100 app.log.zlg
+zlg stats app.log.zlg
+zlg convert app.log.gz app.log.zlg -m fast
+.fi
+.SH AUTHOR
+Richard S. Westmoreland <dev@rswestmore.land>
+.SH LICENSE
+MIT OR Apache-2.0
+.SH SEE ALSO
+grep(1), gzip(1), bzip2(1), xz(1), zstd(1)

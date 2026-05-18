@@ -753,10 +753,18 @@ impl TopAggregator {
         writeln!(writer)?;
         print_report_row(writer, "Pattern", &self.pattern)?;
         print_report_row(writer, "Total matches", &format_count(self.total_matches))?;
-        print_report_row(writer, "Unique values", &format_count(self.values.len() as u64))?;
+        print_report_row(
+            writer,
+            "Unique values",
+            &format_count(self.values.len() as u64),
+        )?;
         print_report_row(writer, "Limit", &format_count(self.limit as u64))?;
         print_report_row(writer, "Cap", &format_count(self.cap as u64))?;
-        print_report_row(writer, "Truncate bytes", &format_count(self.truncate as u64))?;
+        print_report_row(
+            writer,
+            "Truncate bytes",
+            &format_count(self.truncate as u64),
+        )?;
         writeln!(writer)?;
         writeln!(writer, "Rank  Count       Percent  Value")?;
         for (index, row) in self.rows().iter().enumerate() {
@@ -973,6 +981,7 @@ fn grep_exit(matches: usize) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grep_one(
     input: Box<dyn Read>,
     path: Option<&PathBuf>,
@@ -1050,9 +1059,7 @@ fn grep_one(
             match_count += chunk_result;
             stats.matching_lines += chunk_result as u64;
 
-            if options.paths
-                || options.max_count.is_some_and(|limit| match_count >= limit)
-            {
+            if options.paths || options.max_count.is_some_and(|limit| match_count >= limit) {
                 break;
             }
         }
@@ -1074,6 +1081,7 @@ fn grep_one(
     Ok(match_count)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grep_streaming_chunk(
     raw_chunk: RawChunk,
     path: Option<&PathBuf>,
@@ -1142,6 +1150,7 @@ fn grep_streaming_chunk(
     Ok((matches, outcome, counters))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grep_decoded_chunk(
     decoded: &DecodedChunk,
     path: Option<&PathBuf>,

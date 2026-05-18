@@ -34,10 +34,6 @@ pub fn default_compression_mode_name() -> &'static str {
     CompressionMode::Standard.as_str()
 }
 
-pub fn default_chunk_policy_name() -> &'static str {
-    "fixed-lines8192-cap8m"
-}
-
 pub fn default_chunking_description() -> &'static str {
     "line-bounded chunks with byte cap"
 }
@@ -48,13 +44,6 @@ pub fn default_summary_type_name() -> &'static str {
 
 pub fn default_build_profile_name() -> &'static str {
     "combined-bitset-seen"
-}
-
-pub fn chunk_policy_name_from_id(id: u32) -> &'static str {
-    match id {
-        20 => "fixed-lines8192-cap8m",
-        _ => "unknown",
-    }
 }
 
 pub fn chunking_description_from_id(id: u32) -> &'static str {

@@ -417,9 +417,8 @@ fn run_convert_to_writer(
             if let Err(error) = write_result {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(error).with_context(|| {
-                    format!("failed to convert decompressed {} stream", program)
-                });
+                return Err(error)
+                    .with_context(|| format!("failed to convert decompressed {} stream", program));
             }
 
             let status = child

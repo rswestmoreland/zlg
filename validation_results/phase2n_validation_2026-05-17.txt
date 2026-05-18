@@ -1,0 +1,119 @@
+\n$ cargo fmt --check
+\n$ cargo check
+    Checking zlg v0.1.0-phase2a (/workspace/zlg)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.97s
+\n$ cargo test
+   Compiling zlg v0.1.0-phase2a (/workspace/zlg)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.13s
+     Running unittests src/main.rs (target/debug/deps/zlg-4b5c9be7a96821dc)
+
+running 54 tests
+test chunk::tests::chunk_crc_matches_chunk_bytes ... ok
+test chunk::tests::progressive_line_limits_ramp_to_64k ... ok
+test cli::tests::compression_modes_are_locked ... ok
+test cli::tests::convert_help_uses_locked_shape ... ok
+test cli::tests::convert_output_inference_replaces_last_extension ... ok
+test cli::tests::convert_rejects_plain_input_extensions ... ok
+test cli::tests::grep_help_uses_lowercase_option_policy ... ok
+test cli::tests::production_options_are_hidden_from_normal_compress_help ... ok
+test cli::tests::stats_formatting_is_screenshot_friendly ... ok
+test cli::tests::test_help_exposes_json_and_quiet_options ... ok
+test cli::tests::top_aggregation_counts_and_truncates_values ... ok
+test cli::tests::top_aggregation_rejects_cap_overflow ... ok
+test cli::tests::version_long_defaults_are_available ... ok
+test format::tests::decode_rejects_crc_mismatch ... ok
+test format::tests::metadata_reader_handles_empty_archive ... ok
+test format::tests::metadata_reader_reads_valid_archive ... ok
+test format::tests::metadata_reader_rejects_bad_directory_magic ... ok
+test format::tests::metadata_reader_rejects_bad_footer_magic ... ok
+test format::tests::metadata_reader_rejects_directory_footer_count_mismatch ... ok
+test format::tests::metadata_reader_rejects_out_of_bounds_payload ... ok
+test format::tests::read_raw_chunk_at_reads_directory_selected_chunk ... ok
+test format::tests::reader_rejects_directory_length_overflow ... ok
+test format::tests::reader_rejects_excessive_compressed_length_before_allocating ... ok
+test format::tests::reader_rejects_excessive_summary_length_before_allocating ... ok
+test format::tests::reader_rejects_invalid_footer_length ... ok
+test format::tests::reader_rejects_invalid_footer_magic ... ok
+test format::tests::reader_rejects_invalid_global_magic ... ok
+test format::tests::reader_rejects_truncated_compressed_payload ... ok
+test format::tests::reader_rejects_truncated_directory_payload ... ok
+test format::tests::reader_rejects_truncated_footer_payload ... ok
+test format::tests::reader_rejects_truncated_global_header ... ok
+test format::tests::reader_rejects_truncated_summary_bytes ... ok
+test format::tests::reader_rejects_unexpected_record_magic ... ok
+test format::tests::reader_rejects_unsupported_chunk_header_length ... ok
+test format::tests::reader_rejects_unsupported_directory_entry_length ... ok
+test format::tests::reader_rejects_unsupported_global_version ... ok
+test format::tests::round_trip_binary_payload_bytes_exactly ... ok
+test format::tests::round_trip_single_chunk_in_memory ... ok
+test format::tests::round_trip_utf8_payload_bytes_exactly ... ok
+test search::tests::decode_rejects_bigram_mesh_trailing_bytes ... ok
+test search::tests::decode_rejects_truncated_bigram_mesh_varint ... ok
+test search::tests::fixed_find_all_preserves_original_case ... ok
+test search::tests::matcher_rejects_invalid_pcre2_regex ... ok
+test search::tests::matcher_rejects_invalid_rust_regex ... ok
+test search::tests::mesh_summary_handles_binary_bytes ... ok
+test search::tests::mesh_summary_handles_utf8_as_bytes ... ok
+test search::tests::path_window_summary_filters_long_literals ... ok
+test search::tests::positive_lookbehind_unescapes_literal_selector ... ok
+test search::tests::regex_plan_extracts_noncapturing_alternation_prefix ... ok
+test search::tests::regex_plan_extracts_required_literal ... ok
+test search::tests::regex_plan_extracts_top_level_alternation ... ok
+test search::tests::summary_detects_literal_bigrams ... ok
+test search::tests::summary_supports_ascii_ignore_case ... ok
+test chunk::tests::fixed_lines_cap8m_defers_overflow_line_without_dropping ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+\n$ cargo clippy --all-targets --all-features -- -D warnings
+    Checking zlg v0.1.0-phase2a (/workspace/zlg)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.39s
+\n$ cargo build --release
+   Compiling zlg v0.1.0-phase2a (/workspace/zlg)
+    Finished `release` profile [optimized] target(s) in 23.52s
+\n$ bash scripts/phase0h_smoke.sh
+phase0h smoke: pass
+\n$ bash scripts/phase0h_correctness_check.sh
+phase0h correctness ok: regex_alternation
+phase0h correctness ok: fixed_string
+phase0h correctness ok: extract
+phase0h correctness ok: line_numbers
+phase0h correctness ok: ignore_case
+phase0h correctness ok: count
+phase0h correctness ok: invert_match
+phase0h correctness ok: fancy_lookbehind_extract
+phase0h correctness: pass
+\n$ bash scripts/phase0i_policy_matrix_check.sh
+phase0i policy matrix ok: fixed-lines64k
+phase0i policy matrix ok: progressive-lines
+phase0i policy matrix ok: byte1m
+phase0i policy matrix ok: byte4m
+phase0i policy matrix ok: byte8m
+phase0i policy matrix ok: hybrid-progressive-cap4m
+phase0i policy matrix ok: hybrid-progressive-cap8m
+phase0i policy matrix ok: hybrid-progressive-cap16m
+phase0i policy matrix ok: hybrid-progressive-cap32m
+phase0i policy matrix ok: hybrid-fixed64k-cap8m
+phase0i policy matrix ok: hybrid-fixed64k-cap16m
+phase0i policy matrix ok: hybrid-fixed64k-cap32m
+phase0i policy matrix: pass
+\n$ bash scripts/phase0m_selector_smoke.sh
+phase0m selector smoke: pass
+\n$ bash scripts/phase0i_artifact_hygiene_check.sh
+phase0i artifact hygiene: pass
+\n$ bash scripts/phase2_cli_smoke.sh
+phase2 cli smoke passed
+\n$ bash scripts/phase2g_archive_hardening_once.sh
+phase2g archive hardening rows=87 failures=0
+\n$ bash scripts/phase2i_repeated_median_once.sh
+wrote /tmp/zlg-phase2i-median-7cq0_8kd/run_1.csv
+wrote /tmp/zlg-phase2i-median-7cq0_8kd/run_1.md
+wrote /tmp/zlg-phase2i-median-7cq0_8kd/run_2.csv
+wrote /tmp/zlg-phase2i-median-7cq0_8kd/run_2.md
+wrote /tmp/zlg-phase2i-median-7cq0_8kd/run_3.csv
+wrote /tmp/zlg-phase2i-median-7cq0_8kd/run_3.md
+wrote validation_results/phase2i_repeated_median_smoke.csv
+wrote validation_results/phase2i_repeated_median_smoke.md
+phase2i repeated median rows=160 median_rows=40
+\n$ bash scripts/phase2m_convert_once.sh
+phase2m convert smoke passed

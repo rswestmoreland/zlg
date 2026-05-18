@@ -45,112 +45,112 @@ ts=2026-05-17 level=info seq=49999 status=ok user=user2
 "
 fast,valid_archive,grep --strict needle,pass,ok,"ts=2026-05-17 level=error needle=phase2g_hardening status=failed
 "
-fast,bad_global_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_global_magic.zlg
+fast,bad_global_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_global_magic.zlg
 
 Caused by:
     unsupported or invalid zlg magic
 "
-fast,bad_global_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_global_magic.zlg
+fast,bad_global_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_global_magic.zlg
 
 Caused by:
     unsupported or invalid zlg magic
 "
-fast,bad_global_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_global_magic.zlg
+fast,bad_global_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_global_magic.zlg
 
 Caused by:
     unsupported or invalid zlg magic
 "
-fast,unsupported_version,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_unsupported_version.zlg
+fast,unsupported_version,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_unsupported_version.zlg
 
 Caused by:
     unsupported zlg version 999
 "
-fast,unsupported_version,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_unsupported_version.zlg
+fast,unsupported_version,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_unsupported_version.zlg
 
 Caused by:
     unsupported zlg version 999
 "
-fast,unsupported_version,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_unsupported_version.zlg
+fast,unsupported_version,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_unsupported_version.zlg
 
 Caused by:
     unsupported zlg version 999
 "
-fast,bad_footer_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_footer_magic.zlg
+fast,bad_footer_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-fast,bad_footer_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_footer_magic.zlg
+fast,bad_footer_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-fast,bad_footer_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_footer_magic.zlg
+fast,bad_footer_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-fast,bad_footer_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_footer_magic.zlg
+fast,bad_footer_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-fast,bad_directory_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_directory_magic.zlg
+fast,bad_directory_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-fast,bad_directory_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_directory_magic.zlg
+fast,bad_directory_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-fast,bad_directory_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_directory_magic.zlg
+fast,bad_directory_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-fast,bad_directory_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_bad_directory_magic.zlg
+fast,bad_directory_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-fast,directory_count_mismatch,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_directory_count_mismatch.zlg
+fast,directory_count_mismatch,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-fast,directory_count_mismatch,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_directory_count_mismatch.zlg
+fast,directory_count_mismatch,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-fast,directory_count_mismatch,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_directory_count_mismatch.zlg
+fast,directory_count_mismatch,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-fast,directory_count_mismatch,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_directory_count_mismatch.zlg
+fast,directory_count_mismatch,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-fast,payload_out_of_bounds,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_payload_out_of_bounds.zlg
+fast,payload_out_of_bounds,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
 "
-fast,payload_out_of_bounds,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_payload_out_of_bounds.zlg
+fast,payload_out_of_bounds,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
 "
-fast,payload_out_of_bounds,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_payload_out_of_bounds.zlg
+fast,payload_out_of_bounds,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
 "
-fast,payload_out_of_bounds,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_payload_out_of_bounds.zlg
+fast,payload_out_of_bounds,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
@@ -171,7 +171,7 @@ ts=2026-05-17 level=info seq=11 status=ok user=user11
 ts=2026-05-17 l"
 fast,crc_mismatch,grep --strict seq=1,fail,ok,"Error: chunk 0 crc mismatch: expected 0x78480e79, got 0x78480e2c
 "
-fast,summary_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_summary_truncated.zlg
+fast,summary_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_summary_truncated.zlg
 
 Caused by:
     invalid zlg footer magic
@@ -186,7 +186,7 @@ fast,summary_truncated,grep needle,fail,ok,"Error: failed to read chunk search s
 Caused by:
     failed to fill whole buffer
 "
-fast,payload_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/fast_payload_truncated.zlg
+fast,payload_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/fast_payload_truncated.zlg
 
 Caused by:
     invalid zlg footer magic
@@ -248,112 +248,112 @@ ts=2026-05-17 level=info seq=49999 status=ok user=user2
 "
 standard,valid_archive,grep --strict needle,pass,ok,"ts=2026-05-17 level=error needle=phase2g_hardening status=failed
 "
-standard,bad_global_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_global_magic.zlg
+standard,bad_global_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_global_magic.zlg
 
 Caused by:
     unsupported or invalid zlg magic
 "
-standard,bad_global_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_global_magic.zlg
+standard,bad_global_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_global_magic.zlg
 
 Caused by:
     unsupported or invalid zlg magic
 "
-standard,bad_global_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_global_magic.zlg
+standard,bad_global_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_global_magic.zlg
 
 Caused by:
     unsupported or invalid zlg magic
 "
-standard,unsupported_version,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_unsupported_version.zlg
+standard,unsupported_version,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_unsupported_version.zlg
 
 Caused by:
     unsupported zlg version 999
 "
-standard,unsupported_version,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_unsupported_version.zlg
+standard,unsupported_version,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_unsupported_version.zlg
 
 Caused by:
     unsupported zlg version 999
 "
-standard,unsupported_version,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_unsupported_version.zlg
+standard,unsupported_version,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_unsupported_version.zlg
 
 Caused by:
     unsupported zlg version 999
 "
-standard,bad_footer_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_footer_magic.zlg
+standard,bad_footer_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-standard,bad_footer_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_footer_magic.zlg
+standard,bad_footer_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-standard,bad_footer_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_footer_magic.zlg
+standard,bad_footer_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-standard,bad_footer_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_footer_magic.zlg
+standard,bad_footer_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_footer_magic.zlg
 
 Caused by:
     invalid zlg footer magic
 "
-standard,bad_directory_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_directory_magic.zlg
+standard,bad_directory_magic,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-standard,bad_directory_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_directory_magic.zlg
+standard,bad_directory_magic,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-standard,bad_directory_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_directory_magic.zlg
+standard,bad_directory_magic,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-standard,bad_directory_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_bad_directory_magic.zlg
+standard,bad_directory_magic,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_bad_directory_magic.zlg
 
 Caused by:
     invalid zlg directory magic
 "
-standard,directory_count_mismatch,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_directory_count_mismatch.zlg
+standard,directory_count_mismatch,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-standard,directory_count_mismatch,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_directory_count_mismatch.zlg
+standard,directory_count_mismatch,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-standard,directory_count_mismatch,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_directory_count_mismatch.zlg
+standard,directory_count_mismatch,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-standard,directory_count_mismatch,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_directory_count_mismatch.zlg
+standard,directory_count_mismatch,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_directory_count_mismatch.zlg
 
 Caused by:
     zlg directory/footer chunk count mismatch: directory 999, footer 7
 "
-standard,payload_out_of_bounds,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_payload_out_of_bounds.zlg
+standard,payload_out_of_bounds,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
 "
-standard,payload_out_of_bounds,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_payload_out_of_bounds.zlg
+standard,payload_out_of_bounds,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
 "
-standard,payload_out_of_bounds,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_payload_out_of_bounds.zlg
+standard,payload_out_of_bounds,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
 "
-standard,payload_out_of_bounds,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_payload_out_of_bounds.zlg
+standard,payload_out_of_bounds,tail -n 5,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_payload_out_of_bounds.zlg
 
 Caused by:
     zlg chunk 0 payload extends beyond directory
@@ -374,7 +374,7 @@ ts=2026-05-17 level=info seq=11 status=ok user=user11
 ts=2026-05-17 l"
 standard,crc_mismatch,grep --strict seq=1,fail,ok,"Error: chunk 0 crc mismatch: expected 0x78480e79, got 0x78480e2c
 "
-standard,summary_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_summary_truncated.zlg
+standard,summary_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_summary_truncated.zlg
 
 Caused by:
     invalid zlg footer magic
@@ -389,7 +389,7 @@ standard,summary_truncated,grep needle,fail,ok,"Error: failed to read chunk sear
 Caused by:
     failed to fill whole buffer
 "
-standard,payload_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/standard_payload_truncated.zlg
+standard,payload_truncated,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/standard_payload_truncated.zlg
 
 Caused by:
     invalid zlg footer magic
@@ -406,17 +406,17 @@ standard,payload_truncated,grep needle,fail,ok,"Error: failed to skip compressed
 Caused by:
     failed to fill whole buffer
 "
-n/a,non_zlg_input,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/plain.txt
+n/a,non_zlg_input,test,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/plain.txt
 
 Caused by:
     zlg archive is too small for metadata
 "
-n/a,non_zlg_input,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/plain.txt
+n/a,non_zlg_input,info,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/plain.txt
 
 Caused by:
     zlg archive is too small for metadata
 "
-n/a,non_zlg_input,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_28t_yjm7/plain.txt
+n/a,non_zlg_input,stats,fail,ok,"Error: failed to read zlg metadata from /tmp/zlg_phase2g_xhq60hiu/plain.txt
 
 Caused by:
     zlg archive is too small for metadata

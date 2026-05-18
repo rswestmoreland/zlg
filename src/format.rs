@@ -43,7 +43,7 @@ pub fn default_summary_type_name() -> &'static str {
 }
 
 pub fn default_build_profile_name() -> &'static str {
-    "combined-bitset-seen"
+    "optimized mesh builder"
 }
 
 pub fn chunking_description_from_id(id: u32) -> &'static str {

@@ -1,6 +1,6 @@
 [package]
 name = "zlg"
-version = "0.1.0-phase2a"
+version = "0.1.0-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Richard S. Westmoreland <dev@rswestmore.land>"]

@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(chunker.current_line_limit(), 65_536);
     }
     #[test]
-    fn fixed_lines_cap8m_defers_overflow_line_without_dropping() {
+    fn line_bounded_byte_cap_defers_overflow_line_without_dropping() {
         let mut chunker = Chunker::new(ChunkPolicy::FixedLines {
             lines: 8_192,
             byte_cap: Some(8 * 1024 * 1024),

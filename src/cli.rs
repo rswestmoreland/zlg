@@ -2075,7 +2075,7 @@ mod tests {
         assert_eq!(default_compression_mode_name(), "standard");
         assert_eq!(default_chunking_description(), "line-bounded chunks with byte cap");
         assert_eq!(default_summary_type_name(), "mesh-bigram ZBM1 v2");
-        assert_eq!(default_build_profile_name(), "combined-bitset-seen");
+        assert_eq!(default_build_profile_name(), "optimized mesh builder");
     }
 
     #[test]

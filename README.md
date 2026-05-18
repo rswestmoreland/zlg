@@ -26,9 +26,11 @@ zlg compress --mode standard app.log app.log.zlg
 Search an archive with the default regex engine:
 
 ```bash
-zlg grep -r 'error|warn|fail' app.log.zlg
-zlg grep --regex 'status=(failed|denied)' app.log.zlg
+zlg grep 'error|warn|fail' app.log.zlg
+zlg grep --regex 'error|warning|critical' app.log.zlg
 ```
+
+Regular expressions are the default search mode. The explicit `-r, --regex` flag is available for scripts and examples where being clear is more important than being short.
 
 Search with fixed strings or PCRE2:
 
@@ -91,17 +93,40 @@ The footer directory records chunk locations, lengths, and counts. File-backed c
 
 ### Mesh-bigram search summaries
 
-The mesh-bigram summary is a compact per-chunk filter. When zlg writes a chunk, it records small byte-pair clues from the chunk text. During search, the planner derives selectors from the search pattern and checks each chunk summary before decoding the chunk.
+The search summary is the part of zlg that lets it search compressed archives without decoding every chunk.
+
+A **bigram** is a pair of adjacent bytes. For example, the text `error` contains these bigrams:
+
+```text
+er  rr  ro  or
+```
+
+zlg stores a stronger form called a **mesh-bigram summary**. Instead of storing only independent byte pairs, it stores edges between adjacent bigrams. Each edge is represented by a 3-byte window from the chunk. For example, `error` creates these overlapping edges:
+
+```text
+err  rro  ror
+```
+
+Each 3-byte edge says that one bigram was followed by another bigram in that order. This is more selective than a plain set of independent bigrams: a chunk may contain `er` and `or` somewhere, but if it does not contain the required edge sequence for a literal selector, zlg can reject that chunk before decompression.
 
 ![Mesh-bigram planner](docs/assets/mesh-bigram-planner.svg)
 
-The summary is not the final answer. It is a fast reject filter:
+During compression, zlg builds this summary for each chunk:
 
-- If the summary proves the pattern cannot be present, zlg skips the chunk.
-- If the summary says the chunk might match, zlg decodes that chunk and runs the normal matcher.
-- With `--strict`, candidate chunks are verified before output from that chunk is emitted.
+1. scan every 3-byte window in the uncompressed chunk;
+2. pack each window into a compact edge value;
+3. deduplicate the edges;
+4. store the sorted edge set beside the chunk payload.
 
-This is what lets a deep "needle in a haystack" search skip most of a large archive.
+During search, the planner extracts literal selectors from the pattern. For simple regex such as `error|warning|critical`, it can plan one literal per branch. For fixed-string search, the literal is the fixed string itself. For some PCRE2 positive-lookbehind patterns, zlg can use the lookbehind prefix as a selector.
+
+For each chunk, the planner asks: are all required selector edges present in this chunk summary?
+
+- If no, the chunk cannot contain that selector, so zlg skips the chunk payload.
+- If yes, the chunk is only a candidate. zlg still decodes the chunk and runs the real fixed-string, regex, or PCRE2 matcher.
+- If `--strict` is used, zlg verifies a candidate chunk before emitting output from that chunk.
+
+The mesh summary is chunk-level. It chooses which chunks to skip and which chunks to decode; it does not try to parse fields or jump to exact line offsets inside a chunk. Once a chunk is selected, zlg scans matching lines normally. `head`, `tail`, `info`, and `stats` use the footer directory's line counts and byte counts for their seekable behavior.
 
 ## Compression modes
 
@@ -139,7 +164,7 @@ Useful grep options:
 
 `--top` requires `--extract`. If `--cap` is exceeded, zlg exits with an error and emits no top results because the result would be incomplete. Extracted values are truncated to 1,000 bytes by default before counting and display.
 
-Top output uses `Rank`, `Count`, `Percent`, and `Value`. The values below are illustrative; the table layout matches the current text output.
+Top output uses `Rank`, `Count`, `Percent`, and `Value`. The values below are representative; the spacing and right-aligned `Count` column match the current text output.
 
 ```text
 Top extracted matches

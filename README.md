@@ -79,7 +79,7 @@ Plain logs should use `zlg compress`; `zlg convert` is for already-compressed in
 
 A `.zlg` file is a sequence of independent, line-aligned chunks followed by a seekable directory and footer.
 
-![zlg file layout](docs/assets/zlg-file-layout.svg)
+![zlg file layout](docs/assets/zlg-file-layout.png)
 
 Each chunk contains:
 

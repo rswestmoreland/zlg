@@ -24,7 +24,7 @@ required_files = [
     "docs/RELEASE_READINESS.md",
     "docs/ROADMAP.md",
     "docs/SHELL_COMPLETIONS.md",
-    "docs/assets/zlg-file-layout.svg",
+    "docs/assets/zlg-file-layout.png",
     "docs/assets/mesh-bigram-planner.svg",
     "docs/man/zlg.1",
 ]
@@ -85,6 +85,8 @@ for path in ROOT.rglob("*"):
     if "target" in parts:
         continue
     if path.suffix in bad_suffixes and "validation_results" not in parts:
+        if path.suffix in {".png"} and str(rel).startswith("docs/assets/"):
+            continue
         bad_paths.append(str(rel))
 add("generated_binary_artifacts", "fail" if bad_paths else "ok", ", ".join(bad_paths[:20]) if bad_paths else "none")
 

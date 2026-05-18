@@ -9,7 +9,7 @@ A `.zlg` file contains:
 3. a seekable directory;
 4. a footer.
 
-![zlg file layout](assets/zlg-file-layout.svg)
+![zlg file layout](assets/zlg-file-layout.png)
 
 ## Chunks
 
